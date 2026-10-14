@@ -23,6 +23,8 @@ const WIN_H = 430;
 const ASSETS_DIR = app.isPackaged ? path.join(process.resourcesPath, 'assets') : path.join(__dirname, '..', '..', 'assets');
 const MODEL_DIR = path.join(ASSETS_DIR, 'live2d', 'ds-whale-girl');
 const ICON = path.join(ASSETS_DIR, 'icon.png');
+// Windows 托盘/窗口用多尺寸 ico，系统按 DPI 选最合适的一档
+const WIN_ICON = path.join(ASSETS_DIR, 'icon.ico');
 const settingsFile = path.join(app.getPath('userData'), 'settings.json');
 const historyFile = path.join(app.getPath('userData'), 'history.json');
 const MAX_STORED_MESSAGES = 200;
@@ -124,7 +126,7 @@ function createWindow() {
     hasShadow: false,
     skipTaskbar: true,
     alwaysOnTop: settings.alwaysOnTop,
-    icon: ICON,
+    icon: process.platform === 'win32' ? WIN_ICON : ICON,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -160,7 +162,11 @@ function setAutostart(on) {
 // ---------- 托盘 ----------
 
 function createTray() {
-  tray = new Tray(nativeImage.createFromPath(ICON).resize({ width: 32, height: 32 }));
+  tray = new Tray(
+    process.platform === 'win32'
+      ? WIN_ICON
+      : nativeImage.createFromPath(ICON).resize({ width: 32, height: 32, quality: 'best' }),
+  );
   tray.setToolTip('DeepSeek DeskMate · 小鲸');
   tray.on('click', toggleWindow);
   tray.on('right-click', () =>
