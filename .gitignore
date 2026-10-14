@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+
+# Build output (packaged exe etc.)
+client/dist/
+dist/
+out/
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+
+# Secrets (keep server/.env.example)
+.env
+.env.*
+!.env.example
+server/.env
+
+# Live2D Cubism Core (proprietary, download per README)
+client/vendor/
+
+# Logs
+*.log
+out.log
+err.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temp / captures
+*.tmp
+*.temp
+tmp/
+temp/
+capture*/
+*.capture.*
+screenshot*.png
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*~

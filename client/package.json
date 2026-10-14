@@ -1,0 +1,41 @@
+{
+  "name": "deepseek-deskmate",
+  "version": "0.1.0",
+  "description": "DeepSeek Live2D 桌宠 (DS鲸鱼娘 + Ollama)",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.deepseek.deskmate",
+    "productName": "DeepSeekDeskMate",
+    "electronDist": "node_modules/electron/dist",
+    "files": [
+      "src/**/*",
+      "vendor/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "assets",
+        "to": "assets"
+      }
+    ],
+    "win": {
+      "icon": "assets/icon.png",
+      "target": [
+        "portable",
+        "nsis"
+      ]
+    }
+  },
+  "dependencies": {
+    "pixi.js": "^8.22.0",
+    "untitled-pixi-live2d-engine": "^1.4.0"
+  },
+  "devDependencies": {
+    "electron": "^44.7.2",
+    "electron-builder": "^26.15.3"
+  }
+}
