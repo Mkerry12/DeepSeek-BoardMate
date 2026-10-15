@@ -17,7 +17,7 @@ const REMINDERS = {
 
 const pickOne = (list) => list[Math.floor(Math.random() * list.length)];
 
-export function createAssistant({ pet, say, notify, isBusy, wake }) {
+export function createAssistant({ pet, say, notify, isBusy, wake, chime }) {
   const timers = {};
   let pomodoro = null;
 
@@ -33,6 +33,7 @@ export function createAssistant({ pet, say, notify, isBusy, wake }) {
     const line = pickOne(lines);
     announce(() => {
       pet.react(emotion);
+      chime('waiting');
       say(line, HOLD);
       notify('小鲸提醒', line);
     });
@@ -56,6 +57,7 @@ export function createAssistant({ pet, say, notify, isBusy, wake }) {
       startPhase('break', BREAK_MIN);
       announce(() => {
         pet.react('happy');
+        chime('done');
         say(`叮！专注 ${FOCUS_MIN} 分钟完成～休息 ${BREAK_MIN} 分钟吧！`, HOLD);
         notify('番茄钟', `专注完成，休息 ${BREAK_MIN} 分钟吧！`);
       });
@@ -63,6 +65,7 @@ export function createAssistant({ pet, say, notify, isBusy, wake }) {
       pomodoro = null;
       announce(() => {
         pet.react('surprised');
+        chime('asking');
         say('休息结束啦！还要再来一个番茄钟吗？右键我就能开始～', HOLD);
         notify('番茄钟', '休息结束啦！');
       });

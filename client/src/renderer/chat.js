@@ -1,8 +1,8 @@
 // 两种连接方式产出同样的事件：thinking / queued / emotion / delta / error / done
 //   official：主人的 FastAPI 服务器（转发到 Ollama）
 //   apikey：用户自己的 Key，直连 OpenAI 兼容的 /chat/completions
-import { StreamFilter } from './stream-filter.js';
-import { systemPrompt } from './persona.js';
+import { StreamFilter, stripThink } from './stream-filter.js';
+import { systemPrompt, memoryRequest, MEMORY_MAX_CHARS } from './persona.js';
 
 export const API_PRESETS = {
   deepseek: { label: 'DeepSeek 官方', baseUrl: 'https://api.deepseek.com', models: ['deepseek-chat', 'deepseek-reasoner'] },
@@ -29,14 +29,17 @@ export function apiTarget({ api }) {
   };
 }
 
-export function streamChat(settings, messages, signal) {
-  return settings.mode === 'apikey' ? streamApi(settings, messages, signal) : streamOfficial(settings, messages, signal);
+export function streamChat(settings, messages, signal, memory = '') {
+  return settings.mode === 'apikey'
+    ? streamApi(settings, messages, signal, memory)
+    : streamOfficial(settings, messages, signal, memory);
 }
 
-async function* streamOfficial(settings, messages, signal) {
+async function* streamOfficial(settings, messages, signal, memory) {
   const body = { messages };
   if (settings.model) body.model = settings.model;
   if (settings.persona?.trim()) body.persona = settings.persona.trim();
+  if (memory) body.memory = memory;
   const res = await request(`${serverBase(settings)}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...bearer(settings.token) },
@@ -46,23 +49,27 @@ async function* streamOfficial(settings, messages, signal) {
   for await (const data of sseData(res)) yield JSON.parse(data);
 }
 
-async function* streamApi(settings, messages, signal) {
+async function apiCompletion(settings, body, signal) {
   const { baseUrl, model } = apiTarget(settings);
   if (!settings.api.key) throw httpError(401, '还没填 API Key');
   if (!baseUrl || !model) throw httpError(400, '请先在设置里填写接口地址和模型');
-  const res = await request(
+  return request(
     `${baseUrl}/chat/completions`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...bearer(settings.api.key) },
-      body: JSON.stringify({
-        model,
-        stream: true,
-        messages: [{ role: 'system', content: systemPrompt(settings.persona) }, ...messages],
-      }),
+      body: JSON.stringify({ model, ...body }),
       signal,
     },
     true,
+  );
+}
+
+async function* streamApi(settings, messages, signal, memory) {
+  const res = await apiCompletion(
+    settings,
+    { stream: true, messages: [{ role: 'system', content: systemPrompt(settings.persona, memory) }, ...messages] },
+    signal,
   );
 
   const filter = new StreamFilter();
@@ -83,6 +90,48 @@ async function* streamApi(settings, messages, signal) {
   }
   yield* filter.flush();
   yield { type: 'done' };
+}
+
+// 长期记忆：把旧记忆 + 最近的对话整理成一段关于用户的笔记（非流式，返回 '' 表示没什么可记的）
+export async function summarizeMemory(settings, memory, messages, signal) {
+  let text;
+  if (settings.mode === 'apikey') {
+    const res = await apiCompletion(settings, { stream: false, messages: memoryRequest(memory, messages) }, signal);
+    text = stripThink((await res.json()).choices?.[0]?.message?.content || '');
+  } else {
+    const body = { messages, memory };
+    if (settings.model) body.model = settings.model;
+    const res = await request(`${serverBase(settings)}/memory`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...bearer(settings.token) },
+      body: JSON.stringify(body),
+      signal,
+    });
+    text = (await res.json()).memory || '';
+  }
+  if (text.includes('暂无') && text.length < 12) return '';
+  if (text.length <= MEMORY_MAX_CHARS) return text;
+  const cut = text.slice(0, MEMORY_MAX_CHARS);
+  return cut.includes('\n') ? cut.slice(0, cut.lastIndexOf('\n')).trimEnd() : cut;
+}
+
+// 朗读：官方模式走服务器 /tts（朋友也能用），否则或服务器不支持时由主进程直连微软 Edge 语音
+export async function synthSpeech(settings, text, voice, signal) {
+  if (settings.mode !== 'apikey') {
+    try {
+      const res = await request(`${serverBase(settings)}/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...bearer(settings.token) },
+        body: JSON.stringify({ text, voice }),
+        signal,
+      });
+      return await res.arrayBuffer();
+    } catch (err) {
+      if (signal?.aborted || err.status === 401 || err.status === 429) throw err;
+    }
+  }
+  const bytes = await window.desk.tts(text, voice);
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
 }
 
 // 测试连接：返回一组 { text, ok } 状态，official 模式顺便带回服务器上的模型列表

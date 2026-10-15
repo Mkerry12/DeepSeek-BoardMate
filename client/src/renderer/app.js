@@ -2,6 +2,11 @@ import { streamChat, checkConnection, fetchModels, serverBase, API_PRESETS } fro
 import { createIdle } from './idle.js';
 import { createAssistant } from './assistant.js';
 import { createMenu } from './menu.js';
+import { createVoice, VOICES } from './voice.js';
+import { createTouch } from './touch.js';
+import { createGreetings } from './greetings.js';
+import { createMemory } from './memory.js';
+import { todayFortune } from './fortune.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('stage');
@@ -17,11 +22,18 @@ const settingsTest = $('settings-test');
 const modelSelect = $('set-model');
 const presetSelect = $('set-preset');
 const apiModelSelect = $('set-api-model');
+const voiceSelect = $('set-voice');
 
 const MAX_CONTEXT = 20;
 const MAX_STORED = 200;
 const CLIPBOARD_MAX = 900;
 const ERASE_CONFIRM_MS = 4000;
+// 回复超过这么多字，就把头顶的小鲸鱼放到桌上，专心说完再放回去
+const LONG_REPLY = 150;
+const WHALE_BACK_MS = 2500;
+// 按在头上时，离按下点这么远才开始拖窗口（小范围来回蹭是摸头）
+const HEAD_DRAG_START = 36;
+const FORTUNE_REVEAL_MS = 2600;
 // 换装用到的 pet.json 槽位（其余槽位是随对话变化的表情）
 const OUTFIT_SLOTS = ['glasses', 'sticker', 'hair', 'rhand', 'whale', 'claw', 'cloth', 'desk', 'other'];
 const OUTFIT_LABELS = { rhand: '手势', desk: '桌面巴菲' };
@@ -40,13 +52,23 @@ let history = await window.desk.getHistory();
 let abortCtrl = null;
 let bubbleTimer = null;
 let eraseArmedAt = 0;
+let whaleTimer = null;
+let peek = { side: 0, open: false };
 const pet = await createPet();
 pet.setOutfit(settings.outfit);
+
+const voice = createVoice({ getSettings: () => settings, sounds: () => pet.sounds });
+pet.setLipSync(() => voice.level());
+const memory = await createMemory({ getSettings: () => settings, getHistory: () => history });
+const touch = createTouch({ pet, say, quiet: () => !!abortCtrl });
+
+const isBusy = () =>
+  !!abortCtrl || !!drag || menu.isOpen || !settingsForm.classList.contains('hidden') || !!chatInput.value;
 
 const idle = createIdle({
   pet,
   say,
-  isBusy: () => !!abortCtrl || !!drag || menu.isOpen || !settingsForm.classList.contains('hidden') || !!chatInput.value,
+  isBusy: () => isBusy() || voice.active,
   isQuiet: () => assistant.focusing,
   canSpeak: () => bubble.classList.contains('hidden'),
   has: (what) => what === 'parfait' && !settings.outfit.desk,
@@ -58,8 +80,19 @@ const assistant = createAssistant({
   notify: window.desk.notify,
   isBusy: () => !!abortCtrl,
   wake: () => idle.poke(),
+  chime: (kind) => voice.chime(kind),
 });
 assistant.configure(settings.reminders);
+
+const greetings = createGreetings({
+  pet,
+  say,
+  isBusy: () => isBusy() || voice.active || assistant.focusing,
+  getGreeted: () => settings.greeted || {},
+  saveGreeted: async (greeted) => {
+    settings = await window.desk.setSettings({ greeted });
+  },
+});
 
 // ---------- 模型 ----------
 
@@ -159,6 +192,7 @@ function undoExchange() {
 
 function clearHistory() {
   abortCtrl?.abort();
+  voice.stop();
   history = [];
   saveHistory();
   pet.react('relaxed');
@@ -178,9 +212,17 @@ function eraseClick() {
 
 // ---------- 对话 ----------
 
+// 长回复时小鲸鱼从头顶挪到桌上（只在戴着头顶鲸时）
+function whaleToDesk(on) {
+  clearTimeout(whaleTimer);
+  if (on && pet.isLit('头顶鲸')) pet.setLayer('task', ['鲸鱼放桌上']);
+  else if (!on) whaleTimer = setTimeout(() => pet.setLayer('task', null), WHALE_BACK_MS);
+}
+
 async function send(text) {
   idle.poke();
   abortCtrl?.abort();
+  voice.stop();
   const ctrl = (abortCtrl = new AbortController());
   const log = history;
   chatForm.classList.add('busy');
@@ -188,11 +230,14 @@ async function send(text) {
 
   log.push({ role: 'user', content: text });
   pet.setBase('thinking');
+  pet.setNotes(true);
+  clearTimeout(whaleTimer);
+  pet.setLayer('task', null);
   sayTyping();
 
   let reply = '';
   try {
-    for await (const ev of streamChat(settings, context(), ctrl.signal)) {
+    for await (const ev of streamChat(settings, context(), ctrl.signal, memory.text)) {
       if (ev.type === 'thinking') {
         sayTyping('小鲸思考中');
       } else if (ev.type === 'queued') {
@@ -205,14 +250,23 @@ async function send(text) {
           if (!ev.text) continue;
           pet.setTalking(true);
         }
+        if (reply.length <= LONG_REPLY && reply.length + ev.text.length > LONG_REPLY) whaleToDesk(true);
         reply += ev.text;
+        voice.feed(ev.text);
         say(reply);
       } else if (ev.type === 'error') {
         throw new Error(ev.message);
       }
     }
-    if (reply) log.push({ role: 'assistant', content: reply });
-    else log.pop();
+    voice.flush();
+    if (reply) {
+      log.push({ role: 'assistant', content: reply });
+      memory.added(2);
+      if (!settings.voice.on) voice.chime('done');
+    } else {
+      log.pop();
+      pet.react('soulout');
+    }
     pet.flash('橡皮');
     say(reply || '（小鲸没想好说什么…）', Math.max(6000, reply.length * 180));
   } catch (err) {
@@ -224,7 +278,9 @@ async function send(text) {
       return;
     }
     log.pop();
-    pet.react('sad');
+    voice.stop();
+    pet.react('soulout');
+    voice.chime('failed');
     if (err.status === 401) {
       reportAuthError(err);
     } else {
@@ -236,6 +292,8 @@ async function send(text) {
       abortCtrl = null;
       chatForm.classList.remove('busy');
       chatSend.title = '发送';
+      pet.setNotes(false);
+      whaleToDesk(false);
       setTimeout(() => pet.setTalking(false), 400);
     }
   }
@@ -251,6 +309,7 @@ function reportAuthError(err) {
 
 function stopReply() {
   abortCtrl?.abort();
+  voice.stop();
   pet.flash('撤回');
 }
 
@@ -285,6 +344,7 @@ async function explainClipboard() {
 // ---------- 设置 ----------
 
 for (const [id, { label }] of Object.entries(API_PRESETS)) presetSelect.add(new Option(label, id));
+for (const [id, label] of VOICES) voiceSelect.add(new Option(label, id));
 
 function syncFormMode() {
   settingsForm.dataset.mode = settingsForm.mode.value;
@@ -329,6 +389,12 @@ function openSettings() {
   f.waterMin.value = settings.reminders.water.minutes;
   f.restOn.checked = settings.reminders.rest.on;
   f.restMin.value = settings.reminders.rest.minutes;
+  f.voiceOn.checked = settings.voice.on;
+  f.sfxOn.checked = settings.voice.sfx;
+  if (![...voiceSelect.options].some((o) => o.value === settings.voice.name)) {
+    voiceSelect.add(new Option(settings.voice.name, settings.voice.name));
+  }
+  voiceSelect.value = settings.voice.name;
   fillModelSelect([], '', settings.model);
   for (const btn of f.querySelectorAll('.eye-toggle')) setSecretVisible(btn, false);
   setStatus('');
@@ -380,6 +446,7 @@ function formSettings() {
       water: { on: f.waterOn.checked, minutes: minutes(f.waterMin, 45) },
       rest: { on: f.restOn.checked, minutes: minutes(f.restMin, 60) },
     },
+    voice: { on: f.voiceOn.checked, sfx: f.sfxOn.checked, name: voiceSelect.value },
     officialServerUrl: settings.officialServerUrl,
   };
 }
@@ -391,6 +458,7 @@ settingsForm.addEventListener('change', (e) => {
 settingsForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   settings = await window.desk.setSettings(formSettings());
+  if (!settings.voice.on) voice.stop();
   assistant.configure(settings.reminders);
   closeSettings();
   say('设置已保存～', 3000);
@@ -468,6 +536,71 @@ function wave() {
   say('嗨～', 2500);
 }
 
+async function toggleVoice() {
+  const on = !settings.voice.on;
+  settings = await window.desk.setSettings({ voice: { ...settings.voice, on } });
+  if (!on) {
+    voice.stop();
+    return say('好～那我就安安静静地说', 2500);
+  }
+  pet.react('happy');
+  say('语音打开啦！我会把回复读给你听～', 3500);
+  voice.speak('语音打开啦！我会把回复读给你听～');
+}
+
+// 今日运势：掏出手机翻开看一眼，再念给你听
+function showFortune() {
+  if (abortCtrl) return say('等我说完这句再看运势嘛～', 2500);
+  idle.poke();
+  const { emotion, text } = todayFortune();
+  pet.motion('OpenCase', FORTUNE_REVEAL_MS / 1000 + 1.5);
+  sayTyping('小鲸在看今日运势');
+  setTimeout(() => {
+    pet.react(emotion);
+    voice.chime('done');
+    say(text, 12000);
+    voice.speak(text);
+  }, FORTUNE_REVEAL_MS);
+}
+
+function showMemory() {
+  if (!memory.text) return say('小本本上还没记什么呢～多和我聊聊吧！', 4000);
+  pet.react('proud');
+  say(`小本本上记着：\n${memory.text}`, 15000);
+}
+
+async function organizeMemory() {
+  if (!history.length) return say('我们还没聊过天呢，没什么好整理的～', 3000);
+  pet.setNotes(true);
+  sayTyping('小鲸在整理小本本');
+  try {
+    await memory.summarize();
+    pet.flash('橡皮');
+    showMemory();
+  } catch (err) {
+    pet.react('soulout');
+    say(`整理失败了：${err.message}`, 5000);
+  } finally {
+    if (!abortCtrl) pet.setNotes(false);
+  }
+}
+
+function forgetMemory() {
+  memory.clear();
+  pet.flash('橡皮');
+  pet.react('confused');
+  say('咦…我刚刚记得什么来着？全忘光啦～', 4000);
+}
+
+function memoryItems() {
+  return [
+    { note: memory.busy ? '正在整理…' : '小鲸会悄悄记下关于你的事' },
+    { label: '她记得的事', icon: 'book', action: showMemory },
+    { label: '现在整理一下', icon: 'refresh', action: organizeMemory },
+    { label: '忘掉这些', icon: 'trash', confirm: '再点一次，确认忘掉', action: forgetMemory },
+  ];
+}
+
 async function menuItems() {
   const state = await window.desk.getAppState();
   const { command } = window.desk;
@@ -475,10 +608,13 @@ async function menuItems() {
     { label: '聊天', icon: 'chat', action: () => toggleChat(true) },
     { label: '看看剪贴板', icon: 'clipboard', action: explainClipboard },
     { label: '番茄钟', icon: 'timer', hint: assistant.pomodoroLabel() ? '进行中' : '', submenu: pomodoroItems },
+    { label: '今日运势', icon: 'gift', action: showFortune },
     { label: '换装', icon: 'shirt', submenu: outfitItems },
     { label: '打招呼', icon: 'wave', action: wave },
     '-',
     { label: '设置', icon: 'gear', action: openSettings },
+    { label: '语音朗读', icon: 'voice', checked: settings.voice.on, action: toggleVoice },
+    { label: '她记得的事', icon: 'book', submenu: memoryItems },
     { label: '清空记忆', icon: 'trash', confirm: '再点一次，确认清空', action: clearHistory },
     { label: '总在最前', icon: 'pin', checked: state.alwaysOnTop, action: () => command('alwaysOnTop', !state.alwaysOnTop) },
     { label: '开机自启', icon: 'power', checked: state.autostart, action: () => command('autostart', !state.autostart) },
@@ -536,21 +672,29 @@ window.addEventListener('mousemove', (e) => {
     canvas.style.cursor = '';
     return setIgnore(false);
   }
-  const prop = !isOverUI(e.target) && pet.propAt(e.clientX, e.clientY);
+  const over = !isOverUI(e.target);
+  const zone = over && pet.zoneAt(e.clientX, e.clientY);
+  const prop = over && zone !== 'whale' && pet.propAt(e.clientX, e.clientY);
   const props = pet.profile.props;
   pet.setHover(prop && props[prop].look);
-  canvas.style.cursor = prop ? 'pointer' : '';
+  canvas.style.cursor = prop || zone === 'whale' ? 'pointer' : zone === 'head' ? 'grab' : '';
   const overPet = !!prop || pet.hitTest(e.clientX, e.clientY);
-  if (overPet) idle.poke();
+  if (overPet) {
+    idle.poke();
+    if (peek.side && !peek.open) window.desk.openPeek();
+  }
   setIgnore(!(isOverUI(e.target) || overPet));
 });
 
+// 按住头部小范围来回蹭 = 摸头；拖出 HEAD_DRAG_START 以外才开始拖窗口。其他部位照旧，动 4px 就拖
 canvas.addEventListener('pointerdown', async (e) => {
   idle.poke();
   dragged = false;
   if (e.button !== 0 || !pet.hitTest(e.clientX, e.clientY)) return;
   canvas.setPointerCapture(e.pointerId);
-  drag = { sx: e.screenX, sy: e.screenY, moved: false, win: null };
+  const head = pet.zoneAt(e.clientX, e.clientY) === 'head';
+  drag = { sx: e.screenX, sy: e.screenY, lx: e.screenX, moved: false, win: null, head };
+  if (head) touch.strokeStart(e.screenX, e.screenY);
   const [x, y] = await window.desk.getWindowPosition();
   if (drag) drag.win = { x, y };
 });
@@ -559,26 +703,41 @@ canvas.addEventListener('pointermove', (e) => {
   if (!drag?.win) return;
   const dx = e.screenX - drag.sx;
   const dy = e.screenY - drag.sy;
-  if (!drag.moved && Math.hypot(dx, dy) < 4) return;
-  drag.moved = true;
+  if (!drag.moved) {
+    if (drag.head) touch.strokeMove(e.screenX, e.screenY);
+    if (Math.hypot(dx, dy) < (drag.head ? HEAD_DRAG_START : 4)) return;
+    drag.moved = true;
+    window.desk.dragStart();
+  }
+  touch.dragMove(e.screenX - drag.lx);
+  drag.lx = e.screenX;
   window.desk.moveWindow(drag.win.x + dx, drag.win.y + dy);
 });
 
 canvas.addEventListener('pointerup', () => {
   if (!drag) return;
-  dragged = drag.moved;
+  const patted = drag.head && touch.strokeEnd();
+  dragged = drag.moved || patted;
+  if (drag.moved) window.desk.dragEnd();
   drag = null;
 });
 
 canvas.addEventListener('click', (e) => {
   if (dragged || !pet.hitTest(e.clientX, e.clientY)) return;
-  const prop = pet.propAt(e.clientX, e.clientY);
+  const zone = pet.zoneAt(e.clientX, e.clientY);
+  const prop = zone !== 'whale' && pet.propAt(e.clientX, e.clientY);
   if (prop) return PROP_ACTIONS[prop](e);
-  if (e.detail === 1) {
+  if (e.detail === 1 && !touch.tap(zone)) {
     const [emotion, line] = CLICK_LINES[Math.floor(Math.random() * CLICK_LINES.length)];
     pet.react(emotion);
     if (!abortCtrl) say(line, 3000);
   }
+});
+
+window.desk.onPeek((state) => {
+  peek = state;
+  pet.setPeek(state.open ? 0 : state.side);
+  document.body.dataset.peek = state.side && !state.open ? (state.side < 0 ? 'left' : 'right') : '';
 });
 
 canvas.addEventListener('dblclick', (e) => {
@@ -596,6 +755,7 @@ window.addEventListener('keydown', (e) => {
   idle.poke();
   if (e.key === 'Escape') {
     if (menu.isOpen) return menu.close();
+    voice.stop();
     toggleChat(false);
     closeSettings();
   }
@@ -606,13 +766,11 @@ window.desk.onMenuAction((action) => {
   if (action === 'settings') openSettings();
 });
 
-pet.react('wave');
 const configured = settings.mode === 'apikey' ? settings.api.key : settings.token;
-say(
-  !configured
-    ? '你好呀！右键我打开「设置」填写令牌或 API Key，双击我聊天～'
-    : history.length
-      ? '欢迎回来～我还记得我们上次聊的哦'
-      : '你好呀，双击我就可以聊天～',
-  6000,
-);
+if (!configured) {
+  pet.react('wave');
+  say('你好呀！右键我打开「设置」填写令牌或 API Key，双击我聊天～', 6000);
+} else if (!greetings.check()) {
+  pet.react('wave');
+  say(history.length ? '欢迎回来～我还记得我们上次聊的哦' : '你好呀，双击我就可以聊天～', 6000);
+}

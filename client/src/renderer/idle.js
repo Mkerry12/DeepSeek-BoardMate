@@ -9,7 +9,7 @@ const LINE_HOLD = 3500;
 const ACTIVITIES = [
   { motion: 'Selfie', secs: 7, weight: 2, lines: ['咔嚓～自拍一张！', '今天的小鲸也很可爱吧？'] },
   { motion: 'SelfieQuick', secs: 4, weight: 1, lines: ['咔嚓！'] },
-  { motion: 'BubbleGum', secs: 10, weight: 2, lines: ['吹个泡泡～', '噗——泡泡破啦'] },
+  { motion: 'BubbleGum', secs: 10, weight: 2, avoid: '吐魂', lines: ['吹个泡泡～', '噗——泡泡破啦'] },
   { motion: 'Ketchup', looks: ['蛋包饭', '挤番茄酱'], secs: 10, weight: 1, lines: ['给蛋包饭画个爱心～', '番茄酱要挤满满的！'] },
   { looks: ['开心兴奋', '脸红'], secs: 6, weight: 2, needs: 'parfait', lines: ['偷偷吃一口巴菲…', '巴菲好甜～'] },
   { looks: ['调皮', '吐舌'], secs: 5, weight: 1, lines: ['嘿嘿～', '摸鱼中，勿扰～'] },
@@ -39,7 +39,7 @@ export function createIdle({ pet, say, isBusy, isQuiet, canSpeak, has }) {
   }
 
   function pick() {
-    const pool = ACTIVITIES.filter((a) => !a.needs || has(a.needs));
+    const pool = ACTIVITIES.filter((a) => (!a.needs || has(a.needs)) && (!a.avoid || !pet.isLit(a.avoid)));
     let r = Math.random() * pool.reduce((sum, a) => sum + a.weight, 0);
     return pool.find((a) => (r -= a.weight) < 0) || pool[0];
   }

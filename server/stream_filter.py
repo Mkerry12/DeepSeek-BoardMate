@@ -6,12 +6,22 @@
 
 import re
 
-EMOTIONS = {"neutral", "happy", "sad", "angry", "surprised", "relaxed", "thinking", "wave"}
+# 客户端 client/src/renderer/stream-filter.js 里有同样的一份
+EMOTIONS = {
+    "neutral", "happy", "sad", "angry", "surprised", "relaxed", "thinking", "wave",
+    "shy", "love", "cry", "confused", "dizzy", "speechless", "proud", "sleepy",
+}
 
 _OPEN = "<think>"
 _CLOSE = "</think>"
 _EMOTION_RE = re.compile(r"^\[\s*([a-zA-Z_]+)\s*\]")
+_THINK_RE = re.compile(r"<think>.*?(</think>|$)", re.S)
 _MAX_TAG_LEN = 24
+
+
+def strip_think(text: str) -> str:
+    """非流式结果：去掉 <think> 段（没闭合就去到结尾；只有 </think> 就取它后面）。"""
+    return _THINK_RE.sub("", text.rsplit(_CLOSE, 1)[-1]).strip()
 
 
 def _partial_suffix(text: str, tag: str) -> int:

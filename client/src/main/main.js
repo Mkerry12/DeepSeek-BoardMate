@@ -14,6 +14,7 @@ const {
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
+const { MsEdgeTTS, OUTPUT_FORMAT } = require('msedge-tts');
 
 // 「官方服务器」：主人电脑上的 server（转发到 Ollama）。发给朋友前改成花生壳域名再打包
 const OFFICIAL_SERVER_URL = 'http://5f8c344a.r15.cpolar.top';
@@ -27,7 +28,16 @@ const ICON = path.join(ASSETS_DIR, 'icon.png');
 const WIN_ICON = path.join(ASSETS_DIR, 'icon.ico');
 const settingsFile = path.join(app.getPath('userData'), 'settings.json');
 const historyFile = path.join(app.getPath('userData'), 'history.json');
+const memoryFile = path.join(app.getPath('userData'), 'memory.json');
 const MAX_STORED_MESSAGES = 200;
+const TTS_MAX_CHARS = 300;
+const TTS_TIMEOUT = 15000;
+const VOICE_RE = /^[a-z]{2,3}-[A-Z]{2}(-[a-z]+)?-[A-Za-z]+Neural$/;
+// 贴边：离工作区边缘多近算碰到，探头时藏起窗口的比例，滑动动画时长
+const EDGE_SNAP = 12;
+const PEEK_HIDE = 0.5;
+const PEEK_ANIM_MS = 220;
+const PEEK_CLOSE_DELAY = 1500;
 
 const defaultSettings = {
   mode: 'official',
@@ -38,6 +48,9 @@ const defaultSettings = {
   api: { preset: 'deepseek', key: '', baseUrl: '', model: 'deepseek-chat' },
   reminders: { water: { on: true, minutes: 45 }, rest: { on: true, minutes: 60 } },
   outfit: { whale: '头顶鲸' },
+  voice: { on: false, name: 'zh-CN-XiaoyiNeural', sfx: true },
+  greeted: {},
+  peek: null,
   alwaysOnTop: true,
   position: null,
 };
@@ -68,7 +81,7 @@ function normalize(s) {
 function loadSettings() {
   const saved = readJson(settingsFile, {});
   const s = { ...defaultSettings, ...saved };
-  for (const key of ['api', 'reminders', 'outfit']) s[key] = { ...defaultSettings[key], ...saved[key] };
+  for (const key of ['api', 'reminders', 'outfit', 'voice', 'greeted']) s[key] = { ...defaultSettings[key], ...saved[key] };
   if (s.api.keyEnc) {
     try {
       s.api.key = safeStorage.decryptString(Buffer.from(s.api.keyEnc, 'base64'));
@@ -131,6 +144,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      autoplayPolicy: 'no-user-gesture-required',
     },
   });
 
@@ -138,10 +152,109 @@ function createWindow() {
   win.setIgnoreMouseEvents(true, { forward: true });
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   win.on('moved', () => {
-    const [x, y] = win.getPosition();
-    settings.position = { x, y };
-    saveSettings();
+    if (!anim) savePosition();
   });
+  win.webContents.on('did-finish-load', () => {
+    if (settings.peek) setPeek(settings.peek, false, true);
+  });
+}
+
+function savePosition() {
+  const [x, y] = win.getPosition();
+  settings.position = { x, y };
+  saveSettings();
+}
+
+// ---------- 贴边探头 ----------
+
+let anim = null;
+let peekOpen = false;
+let peekTimer = null;
+let peekAway = 0;
+
+function animateTo(x, instant = false) {
+  clearInterval(anim?.timer);
+  const [x0, y] = win.getPosition();
+  const place = (px) => win.setBounds({ x: Math.round(px), y, width: WIN_W, height: WIN_H });
+  if (instant || x0 === x) {
+    anim = null;
+    place(x);
+    return savePosition();
+  }
+  const start = Date.now();
+  anim = {
+    timer: setInterval(() => {
+      const t = Math.min(1, (Date.now() - start) / PEEK_ANIM_MS);
+      place(x0 + (x - x0) * (1 - (1 - t) ** 3));
+      if (t < 1) return;
+      clearInterval(anim.timer);
+      anim = null;
+      savePosition();
+    }, 16),
+  };
+}
+
+// 碰到的工作区左右边缘（另一侧还接着别的显示器就不算边）
+function edgeOf(bounds) {
+  const display = screen.getDisplayMatching(bounds);
+  const wa = display.workArea;
+  const cy = bounds.y + bounds.height / 2;
+  const open = (x) => screen.getDisplayNearestPoint({ x, y: cy }).id === display.id;
+  if (bounds.x <= wa.x + EDGE_SNAP && open(wa.x - 1)) return -1;
+  if (bounds.x + bounds.width >= wa.x + wa.width - EDGE_SNAP && open(wa.x + wa.width)) return 1;
+  return 0;
+}
+
+function peekX(side, open) {
+  const { workArea: wa } = screen.getDisplayMatching(win.getBounds());
+  const hidden = open ? 0 : WIN_W * PEEK_HIDE;
+  return side < 0 ? wa.x - hidden : wa.x + wa.width - WIN_W + hidden;
+}
+
+function setPeek(side, open, instant = false) {
+  clearInterval(peekTimer);
+  peekOpen = open;
+  peekAway = 0;
+  if (settings.peek !== side) {
+    settings.peek = side;
+    saveSettings();
+  }
+  if (side) animateTo(peekX(side, open), instant);
+  if (side && open) peekTimer = setInterval(watchPeek, 300);
+  win.webContents.send('peek', { side: side || 0, open });
+}
+
+// 滑出来以后：鼠标离开窗口、窗口也不在前台一会儿，就再缩回去
+function watchPeek() {
+  const p = screen.getCursorScreenPoint();
+  const b = win.getBounds();
+  const inside = p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height;
+  peekAway = inside || win.isFocused() ? 0 : peekAway + 300;
+  if (peekAway >= PEEK_CLOSE_DELAY) setPeek(settings.peek, false);
+}
+
+// ---------- 朗读（API Key 模式 / 服务器不支持时，主进程直连微软 Edge 语音） ----------
+
+const escapeXml = (s) => s.replace(/[<>&"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+async function edgeTts(text, voice) {
+  if (!VOICE_RE.test(voice)) throw new Error('不支持的音色');
+  const tts = new MsEdgeTTS();
+  try {
+    await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+    const { audioStream } = tts.toStream(escapeXml(text.slice(0, TTS_MAX_CHARS)));
+    const chunks = [];
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('语音合成超时')), TTS_TIMEOUT);
+      audioStream.on('data', (c) => chunks.push(c));
+      audioStream.on('end', () => (clearTimeout(timer), resolve()));
+      audioStream.on('error', (e) => (clearTimeout(timer), reject(e)));
+    });
+    if (!chunks.length) throw new Error('语音合成失败');
+    return Buffer.concat(chunks);
+  } finally {
+    tts.close();
+  }
 }
 
 // ---------- 开机自启 ----------
@@ -207,6 +320,10 @@ ipcMain.handle('settings:set', (_e, patch) => {
 
 ipcMain.handle('history:get', () => readJson(historyFile, []));
 ipcMain.handle('history:set', (_e, messages) => writeJson(historyFile, messages.slice(-MAX_STORED_MESSAGES)));
+ipcMain.handle('memory:get', () => readJson(memoryFile, null));
+ipcMain.handle('memory:set', (_e, memory) => writeJson(memoryFile, memory));
+
+ipcMain.handle('tts', (_e, text, voice) => edgeTts(String(text), String(voice)));
 
 ipcMain.handle('clipboard:read', () => clipboard.readText());
 
@@ -224,6 +341,19 @@ ipcMain.on('mouse:ignore', (_e, ignore) => {
 ipcMain.handle('window:getPosition', () => win.getPosition());
 ipcMain.on('window:move', (_e, x, y) => {
   win?.setBounds({ x: Math.round(x), y: Math.round(y), width: WIN_W, height: WIN_H });
+});
+ipcMain.on('drag:start', () => {
+  clearInterval(anim?.timer);
+  anim = null;
+  if (settings.peek) setPeek(null, false);
+});
+ipcMain.on('drag:end', () => {
+  const side = edgeOf(win.getBounds());
+  if (side) setPeek(side, false);
+  else savePosition();
+});
+ipcMain.on('peek:open', () => {
+  if (settings.peek && !peekOpen) setPeek(settings.peek, true);
 });
 
 // 渲染进程里的 HTML 右键菜单需要的状态与操作
@@ -248,7 +378,6 @@ if (!app.requestSingleInstanceLock()) {
     nativeTheme.themeSource = 'light';
     settings = loadSettings();
     createWindow();
-    createTray();
-  });
+    createTray();  });
   app.on('window-all-closed', () => app.quit());
 }

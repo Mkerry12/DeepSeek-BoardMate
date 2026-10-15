@@ -1,4 +1,5 @@
-// Live2D 角色（Cubism 3/4/5）：setBase / setTalking / react / setLayer / flash / motion / setOutfit / propAt / hitTest / topY
+// Live2D 角色（Cubism 3/4/5）：setBase / setTalking / react / setLayer / flash / motion / setOutfit / propAt / zoneAt
+//   / hitTest / setNotes / setLipSync / setPeek / topY
 // 引擎在导入时就要求 window.Live2DCubismCore 存在，所以本模块必须在 Core 加载后再动态导入
 import { Application, extensions } from 'pixi.js';
 import { Live2DModel, Live2DPlugin } from 'untitled-pixi-live2d-engine/cubism';
@@ -9,9 +10,10 @@ const EMOTION_HOLD = 6;
 const FLASH_HOLD = 2.5;
 const MEASURE_DELAY = 1200;
 // 同一槽位里后面的层覆盖前面的层（例如挥手的「双手比耶」暂时替换换装的「喵喵手」）
-const LAYER_ORDER = ['activity', 'emotion', 'flash', 'hover'];
+const LAYER_ORDER = ['activity', 'task', 'emotion', 'flash', 'hover'];
 
 // 角色包里的 live2d.json 未提供时使用的默认映射（按 DS 鲸鱼娘的表情名）
+// 前 16 个是模型回复开头可用的情绪标签（与 server/app.py REPLY_RULES 一致），其余是桌宠内部用的
 const DEFAULT_PROFILE = {
   states: {
     thinking: ['画笔', '问号'],
@@ -24,6 +26,17 @@ const DEFAULT_PROFILE = {
     angry: { looks: ['生气'], motion: 'Hammer', secs: 4.8 },
     surprised: { looks: ['感叹号', '星星眼'] },
     relaxed: { looks: ['调皮', '脸红'] },
+    shy: { looks: ['爱心眼', '冒爱心', '心跳', '脸红'] },
+    love: { looks: ['爱心眼', '冒爱心', '情绪花花', '脸红'] },
+    cry: { looks: ['大哭', '流汗'] },
+    confused: { looks: ['呆呆眼', '问号'] },
+    dizzy: { looks: ['晕晕', '流汗'] },
+    speechless: { looks: ['阴暗', '吐魂'] },
+    proud: { looks: ['星星眼', '调皮', '情绪花花'] },
+    sleepy: { looks: ['闭眼口水'] },
+    soulout: { looks: ['吐魂', '呆呆眼', '流汗'] },
+    pat: { looks: ['爱心眼', '心跳', '脸红'] },
+    blush: { looks: ['脸红', '感叹号'] },
   },
   // 桌上纸张里的三个图标：中心与半径都按模型包围盒的比例给出，任意缩放下都成立
   props: {
@@ -33,6 +46,16 @@ const DEFAULT_PROFILE = {
   },
   propRadius: { x: 0.05, y: 0.034 },
   propBlockers: ['蛋包饭'],
+  // 触摸区（椭圆，同样按包围盒比例），按顺序命中；when：对应表情亮着才算
+  zones: [
+    { id: 'whale', x: 0.49, y: 0.245, rx: 0.13, ry: 0.065, when: '头顶鲸' },
+    { id: 'whale', x: 0.62, y: 0.79, rx: 0.11, ry: 0.05, when: '鲸鱼放桌上' },
+    { id: 'face', x: 0.49, y: 0.56, rx: 0.17, ry: 0.07 },
+    { id: 'head', x: 0.51, y: 0.39, rx: 0.28, ry: 0.1 },
+  ],
+  // 写本本：pet.json 里右手「写本本」选项（点菜板按下 + sweep 参数摆动），写的时候左手道具让位
+  notes: { option: '写本本', clears: 'lhand' },
+  peekTilt: { ParamAngleZ: 12, ParamBodyAngleZ: 5 },
   mouthParam: 'ParamMouthOpenY',
 };
 
@@ -48,6 +71,13 @@ export class Live2DPet {
     this.mouth = 0;
     this.weights = new Map();
     this.topY = 0;
+    this.sounds = {};
+    this.notes = false;
+    this.notesW = 0;
+    this.peekSide = 0;
+    this.peekW = 0;
+    this.lastPeek = 0;
+    this.lipSync = null;
     this._pixel = new Uint8Array(4);
   }
 
@@ -114,11 +144,17 @@ export class Live2DPet {
     try {
       const pet = await fetch(new URL('pet.json', modelUrl)).then((r) => r.json());
       this.slots = pet.live2d?.expressionSlots || [];
+      this.sounds = pet.live2d?.sounds || {};
     } catch {
       this.slots = [];
     }
     for (const slot of this.slots) {
       for (const opt of slot.options) for (const name of opt.expressions || []) this.slotOf.set(name, slot.id);
+    }
+    const { option, clears } = this.profile.notes || {};
+    for (const slot of this.slots) {
+      const opt = slot.options.find((o) => o.label === option);
+      if (opt) this.noteConf = { slot: slot.id, looks: opt.expressions || [], sweep: opt.sweep, clears };
     }
   }
 
@@ -191,6 +227,26 @@ export class Live2DPet {
     this.setLayer('hover', look && [look]);
   }
 
+  isLit(name) {
+    return (this.weights.get(name) || 0) > 0.5;
+  }
+
+  // 边回答边在小本本上写字
+  setNotes(on) {
+    this.notes = !!on && !!this.noteConf;
+  }
+
+  // fn() 返回 0~1 的音量（正在播语音）或 null（没有语音，说话时用正弦口型）
+  setLipSync(fn) {
+    this.lipSync = fn;
+  }
+
+  // 贴边探头：side -1 左边 / 1 右边 / 0 不探头；探头时望向屏幕里面
+  setPeek(side) {
+    this.peekSide = side;
+    if (side) this.model?.focus(window.innerWidth / 2 - side * window.innerWidth * 2, this.topY + 60);
+  }
+
   // outfit：{ 槽位 id: 选项 label }，对应 pet.json 里该选项的 expressions
   setOutfit(outfit = {}) {
     this.outfitLooks = this.slots.flatMap((slot) => {
@@ -236,7 +292,25 @@ export class Live2DPet {
   }
 
   setPointer(clientX, clientY) {
-    this.model?.focus(clientX, clientY);
+    if (!this.peekSide) this.model?.focus(clientX, clientY);
+  }
+
+  // 屏幕坐标 → 模型包围盒内的比例坐标
+  frac(clientX, clientY) {
+    const m = this.model;
+    return {
+      fx: (clientX - (m.x - m.width * m.anchor.x)) / m.width,
+      fy: (clientY - (m.y - m.height * m.anchor.y)) / m.height,
+    };
+  }
+
+  zoneAt(clientX, clientY) {
+    if (!this.model) return null;
+    const { fx, fy } = this.frac(clientX, clientY);
+    const zone = this.profile.zones.find(
+      (z) => (!z.when || this.isLit(z.when)) && ((fx - z.x) / z.rx) ** 2 + ((fy - z.y) / z.ry) ** 2 <= 1,
+    );
+    return zone?.id || null;
   }
 
   hitTest(clientX, clientY) {
@@ -254,8 +328,7 @@ export class Live2DPet {
     const m = this.model;
     const { props, propRadius, propBlockers } = this.profile;
     if (!m || !props || propBlockers.some((name) => (this.weights.get(name) || 0) > 0.3)) return null;
-    const fx = (clientX - (m.x - m.width * m.anchor.x)) / m.width;
-    const fy = (clientY - (m.y - m.height * m.anchor.y)) / m.height;
+    const { fx, fy } = this.frac(clientX, clientY);
     for (const [id, p] of Object.entries(props)) {
       if (((fx - p.x) / propRadius.x) ** 2 + ((fy - p.y) / propRadius.y) ** 2 <= 1) return id;
     }
@@ -282,6 +355,10 @@ export class Live2DPet {
       if (layer && now > layer.until) this.layers.delete(key);
       else if (layer) put(layer.looks);
     }
+    if (this.notes) {
+      bySlot.delete(this.noteConf.clears);
+      bySlot.set(this.noteConf.slot, this.noteConf.looks);
+    }
     return new Set([...bySlot.values()].flat());
   }
 
@@ -293,10 +370,29 @@ export class Live2DPet {
       if (w < 0.001 && !active.has(name)) this.weights.delete(name);
       else this.weights.set(name, w);
     }
+    this.notesW += ((this.notes ? 1 : 0) - this.notesW) * k;
+    this.peekW += ((this.peekSide ? 1 : 0) - this.peekW) * k;
+    if (this.peekSide) this.lastPeek = this.peekSide;
 
     const t = performance.now() / 1000;
-    const target = this.talking ? 0.5 + 0.45 * Math.sin(t * 17) * Math.sin(t * 7.3) : 0;
-    this.mouth += (Math.max(0, target) - this.mouth) * (1 - Math.exp(-dt * 20));
+    const level = this.lipSync?.();
+    const target = level != null ? level : this.talking ? 0.5 + 0.45 * Math.sin(t * 17) * Math.sin(t * 7.3) : 0;
+    const speed = target > this.mouth ? 30 : 14;
+    this.mouth += (Math.max(0, Math.min(1, target)) - this.mouth) * (1 - Math.exp(-dt * speed));
+  }
+
+  // pet.json 的 sweep：手在本子上来回划，笔尖一下一下点着纸
+  sweepValues(t) {
+    const s = this.noteConf?.sweep;
+    if (!s) return {};
+    const p = (2 * Math.PI * t * 1000) / s.loopMs;
+    const drift = Math.sin((2 * Math.PI * t * 1000) / s.driftMs);
+    return {
+      [s.x]: s.ampX * Math.sin(p),
+      [s.y]: s.ampY * Math.sin(2 * p) * 0.5 + s.driftY * drift,
+      [s.rz]: s.ampZ * Math.sin(p + Math.PI / 2),
+      [s.z]: 0.5 + 0.5 * Math.sin(4 * p),
+    };
   }
 
   applyParams(core) {
@@ -307,6 +403,18 @@ export class Live2DPet {
         if (p.Blend === 'Add') core.addParameterValueByIndex(idx, p.Value, w);
         else if (p.Blend === 'Multiply') core.multiplyParameterValueByIndex(idx, p.Value, w);
         else core.setParameterValueByIndex(idx, p.Value, w);
+      }
+    }
+    if (this.notesW > 0.01) {
+      for (const [id, v] of Object.entries(this.sweepValues(performance.now() / 1000))) {
+        const idx = this.paramIndex.get(id);
+        if (idx != null) core.setParameterValueByIndex(idx, v, this.notesW);
+      }
+    }
+    if (this.peekW > 0.01) {
+      for (const [id, v] of Object.entries(this.profile.peekTilt)) {
+        const idx = this.paramIndex.get(id);
+        if (idx != null) core.addParameterValueByIndex(idx, -this.lastPeek * v, this.peekW);
       }
     }
     const mouthIdx = this.paramIndex.get(this.profile.mouthParam);

@@ -31,6 +31,7 @@
     }
   },
   "dependencies": {
+    "msedge-tts": "^2.1.0",
     "pixi.js": "^8.22.0",
     "untitled-pixi-live2d-engine": "^1.4.0"
   },

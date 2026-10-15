@@ -1,7 +1,15 @@
 // server/stream_filter.py 的 JS 版：去掉 <think>…</think>，解析回复开头的 [emotion] 标签
-const EMOTIONS = new Set(['neutral', 'happy', 'sad', 'angry', 'surprised', 'relaxed', 'thinking', 'wave']);
+const EMOTIONS = new Set([
+  ...['neutral', 'happy', 'sad', 'angry', 'surprised', 'relaxed', 'thinking', 'wave'],
+  ...['shy', 'love', 'cry', 'confused', 'dizzy', 'speechless', 'proud', 'sleepy'],
+]);
 const OPEN = '<think>';
 const CLOSE = '</think>';
+
+// 非流式结果：去掉 <think> 段（没闭合就去到结尾；只有 </think> 就取它后面）
+export function stripThink(text) {
+  return text.split(CLOSE).at(-1).replace(/<think>[\s\S]*?(<\/think>|$)/g, '').trim();
+}
 const EMOTION_RE = /^\[\s*([a-zA-Z_]+)\s*\]/;
 const MAX_TAG_LEN = 24;
 

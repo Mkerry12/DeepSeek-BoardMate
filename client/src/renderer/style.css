@@ -98,6 +98,17 @@ svg {
   transform: rotate(45deg);
 }
 
+/* 贴边探头时气泡挪到露在屏幕里的那一半 */
+body[data-peek='left'] #bubble {
+  left: 75%;
+  max-width: 132px;
+}
+
+body[data-peek='right'] #bubble {
+  left: 25%;
+  max-width: 132px;
+}
+
 #bubble.leaving {
   animation: bubble-out 0.18s ease-in forwards;
 }
@@ -601,6 +612,10 @@ svg {
   margin: 0;
   font-weight: 400;
   font-size: 12px;
+}
+
+#set-voice {
+  margin-top: 2px;
 }
 
 .field .remind input[type='checkbox'] {
