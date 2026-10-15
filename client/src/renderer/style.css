@@ -98,17 +98,6 @@ svg {
   transform: rotate(45deg);
 }
 
-/* 贴边探头时气泡挪到露在屏幕里的那一半 */
-body[data-peek='left'] #bubble {
-  left: 75%;
-  max-width: 132px;
-}
-
-body[data-peek='right'] #bubble {
-  left: 25%;
-  max-width: 132px;
-}
-
 #bubble.leaving {
   animation: bubble-out 0.18s ease-in forwards;
 }
@@ -616,6 +605,42 @@ body[data-peek='right'] #bubble {
 
 #set-voice {
   margin-top: 2px;
+}
+
+.volume {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+  color: #4a5577;
+}
+
+.volume svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+
+.field .volume input[type='range'] {
+  flex: 1;
+  min-width: 0;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+
+.volume output {
+  flex: none;
+  width: 34px;
+  text-align: right;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .field .remind input[type='checkbox'] {

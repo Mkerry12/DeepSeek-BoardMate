@@ -123,6 +123,11 @@
             <label><input type="checkbox" name="sfxOn" />提示音</label>
           </div>
           <select id="set-voice" name="voiceName" title="音色"></select>
+          <div class="volume">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z" /><path d="M16.5 8.5a5 5 0 0 1 0 7" /></svg>
+            <input type="range" id="set-volume" name="volume" min="0" max="100" step="5" title="音量（朗读和提示音）" />
+            <output id="set-volume-out" for="set-volume"></output>
+          </div>
         </div>
 
         <div class="field">

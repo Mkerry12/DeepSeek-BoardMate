@@ -53,9 +53,11 @@ let abortCtrl = null;
 let bubbleTimer = null;
 let eraseArmedAt = 0;
 let whaleTimer = null;
-let peek = { side: 0, open: false };
+let peek = { side: '', open: false, clip: null };
 const pet = await createPet();
 pet.setOutfit(settings.outfit);
+pet.onMeasure = (box) => window.desk.setPetBounds(box);
+if (pet.box) window.desk.setPetBounds(pet.box);
 
 const voice = createVoice({ getSettings: () => settings, sounds: () => pet.sounds });
 pet.setLipSync(() => voice.level());
@@ -153,14 +155,37 @@ function showBubble(nodes, holdMs) {
   clearTimeout(bubbleTimer);
   bubbleText.replaceChildren(...nodes);
   bubble.classList.remove('hidden', 'leaving');
+  placeBubble();
   bubbleText.scrollTop = bubbleText.scrollHeight;
-  bubble.style.top = `${Math.max(8, (pet.topY ?? 0) - bubble.offsetHeight - BUBBLE_GAP)}px`;
   if (holdMs) bubbleTimer = setTimeout(hideBubble, holdMs);
+  syncPeekHold();
+}
+
+// 左右探头时气泡挪到露在屏幕里的那一截上
+function placeBubble() {
+  const c = peek.clip;
+  const sideways = c && !peek.open && (peek.side === 'left' || peek.side === 'right');
+  bubble.style.left = sideways ? `${(c.left + c.right) / 2}px` : '';
+  bubble.style.maxWidth = sideways ? `${c.right - c.left - 16}px` : '';
+  bubble.style.top = `${Math.max(8, (pet.topY ?? 0) - bubble.offsetHeight - BUBBLE_GAP)}px`;
 }
 
 function hideBubble() {
   bubble.classList.add('leaving');
-  bubbleTimer = setTimeout(() => bubble.classList.add('hidden'), 180);
+  bubbleTimer = setTimeout(() => {
+    bubble.classList.add('hidden');
+    syncPeekHold();
+  }, 180);
+}
+
+// 贴边藏着时，打开聊天框/菜单/设置就整个滑出来；从上边探头时头顶的气泡在屏幕外，说话也得滑出来
+let peekHeld = false;
+function syncPeekHold() {
+  const ui = menu.isOpen || !chatForm.classList.contains('hidden') || !settingsForm.classList.contains('hidden');
+  const hold = ui || (peek.side === 'top' && !bubble.classList.contains('hidden'));
+  if (hold === peekHeld) return;
+  peekHeld = hold;
+  window.desk.holdPeek(hold);
 }
 
 const clip = (text, n) => (text.length > n ? `${text.slice(0, n)}…` : text);
@@ -322,6 +347,7 @@ chatSend.addEventListener('click', (e) => {
 function toggleChat(show = chatForm.classList.contains('hidden')) {
   chatForm.classList.toggle('hidden', !show);
   if (show) chatInput.focus();
+  syncPeekHold();
 }
 
 chatForm.addEventListener('submit', (e) => {
@@ -391,6 +417,8 @@ function openSettings() {
   f.restMin.value = settings.reminders.rest.minutes;
   f.voiceOn.checked = settings.voice.on;
   f.sfxOn.checked = settings.voice.sfx;
+  f.volume.value = settings.voice.volume;
+  showVolume();
   if (![...voiceSelect.options].some((o) => o.value === settings.voice.name)) {
     voiceSelect.add(new Option(settings.voice.name, settings.voice.name));
   }
@@ -400,6 +428,7 @@ function openSettings() {
   setStatus('');
   f.classList.remove('hidden');
   f.querySelector('.panel-body').scrollTop = 0;
+  syncPeekHold();
   if (settings.mode === 'official' && settings.token) loadServerModels();
 }
 
@@ -422,7 +451,10 @@ function chip({ text, ok }) {
 }
 
 function closeSettings() {
+  if (settingsForm.classList.contains('hidden')) return;
   settingsForm.classList.add('hidden');
+  voice.setVolume(settings.voice.volume);
+  syncPeekHold();
 }
 
 const minutes = (input, fallback) => Math.min(600, Math.max(1, Math.round(Number(input.value)) || fallback));
@@ -446,13 +478,27 @@ function formSettings() {
       water: { on: f.waterOn.checked, minutes: minutes(f.waterMin, 45) },
       rest: { on: f.restOn.checked, minutes: minutes(f.restMin, 60) },
     },
-    voice: { on: f.voiceOn.checked, sfx: f.sfxOn.checked, name: voiceSelect.value },
+    voice: { on: f.voiceOn.checked, sfx: f.sfxOn.checked, name: voiceSelect.value, volume: Number(f.volume.value) },
     officialServerUrl: settings.officialServerUrl,
   };
 }
 
 settingsForm.addEventListener('change', (e) => {
   if (e.target.name === 'mode' || e.target === presetSelect) syncFormMode();
+});
+
+// 音量：拖动时正在播的语音立刻跟着变，松手后没在说话就响一声试听
+function showVolume() {
+  $('set-volume-out').value = `${settingsForm.volume.value}%`;
+}
+
+settingsForm.volume.addEventListener('input', () => {
+  showVolume();
+  voice.setVolume(Number(settingsForm.volume.value));
+});
+
+settingsForm.volume.addEventListener('change', () => {
+  if (!voice.active) voice.chime('done', true);
 });
 
 settingsForm.addEventListener('submit', async (e) => {
@@ -487,7 +533,12 @@ settingsTest.addEventListener('click', async () => {
 
 // ---------- 右键菜单 ----------
 
-const menu = createMenu($('menu'), { onToggle: (open) => open && setIgnore(false) });
+const menu = createMenu($('menu'), {
+  onToggle: (open) => {
+    if (open) setIgnore(false);
+    syncPeekHold();
+  },
+});
 
 function outfitSlots() {
   return pet.slots
@@ -687,40 +738,39 @@ window.addEventListener('mousemove', (e) => {
 });
 
 // 按住头部小范围来回蹭 = 摸头；拖出 HEAD_DRAG_START 以外才开始拖窗口。其他部位照旧，动 4px 就拖
-canvas.addEventListener('pointerdown', async (e) => {
+// 拖动阈值之前用窗口内坐标判断（窗口还没动）；开始拖以后窗口由主进程跟着光标挪
+canvas.addEventListener('pointerdown', (e) => {
   idle.poke();
   dragged = false;
   if (e.button !== 0 || !pet.hitTest(e.clientX, e.clientY)) return;
   canvas.setPointerCapture(e.pointerId);
   const head = pet.zoneAt(e.clientX, e.clientY) === 'head';
-  drag = { sx: e.screenX, sy: e.screenY, lx: e.screenX, moved: false, win: null, head };
+  drag = { sx: e.clientX, sy: e.clientY, lx: e.screenX, moved: false, head };
   if (head) touch.strokeStart(e.screenX, e.screenY);
-  const [x, y] = await window.desk.getWindowPosition();
-  if (drag) drag.win = { x, y };
 });
 
 canvas.addEventListener('pointermove', (e) => {
-  if (!drag?.win) return;
-  const dx = e.screenX - drag.sx;
-  const dy = e.screenY - drag.sy;
+  if (!drag) return;
   if (!drag.moved) {
     if (drag.head) touch.strokeMove(e.screenX, e.screenY);
-    if (Math.hypot(dx, dy) < (drag.head ? HEAD_DRAG_START : 4)) return;
+    if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < (drag.head ? HEAD_DRAG_START : 4)) return;
     drag.moved = true;
     window.desk.dragStart();
   }
   touch.dragMove(e.screenX - drag.lx);
   drag.lx = e.screenX;
-  window.desk.moveWindow(drag.win.x + dx, drag.win.y + dy);
 });
 
-canvas.addEventListener('pointerup', () => {
+function endDrag() {
   if (!drag) return;
   const patted = drag.head && touch.strokeEnd();
   dragged = drag.moved || patted;
   if (drag.moved) window.desk.dragEnd();
   drag = null;
-});
+}
+
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('lostpointercapture', endDrag);
 
 canvas.addEventListener('click', (e) => {
   if (dragged || !pet.hitTest(e.clientX, e.clientY)) return;
@@ -735,9 +785,13 @@ canvas.addEventListener('click', (e) => {
 });
 
 window.desk.onPeek((state) => {
+  const changed = state.side !== peek.side || state.open !== peek.open;
   peek = state;
-  pet.setPeek(state.open ? 0 : state.side);
-  document.body.dataset.peek = state.side && !state.open ? (state.side < 0 ? 'left' : 'right') : '';
+  pet.setClip(state.clip);
+  if (!bubble.classList.contains('hidden')) placeBubble();
+  if (!changed) return;
+  pet.setPeek(state.open ? '' : state.side);
+  syncPeekHold();
 });
 
 canvas.addEventListener('dblclick', (e) => {

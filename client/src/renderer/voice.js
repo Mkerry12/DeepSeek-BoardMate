@@ -17,6 +17,13 @@ const MAX_SENTENCE = 80;
 const MIN_SOFT = 24;
 const NOISE_FLOOR = 0.01;
 const GAIN = 6;
+const DEFAULT_VOLUME = 80;
+
+// 设置里的百分比 → 增益，按平方走，小音量那一段调起来更细
+function toGain(percent) {
+  const p = Number.isFinite(percent) ? Math.min(100, Math.max(0, percent)) : DEFAULT_VOLUME;
+  return (p / 100) ** 2;
+}
 
 export function cleanForSpeech(text) {
   return text
@@ -48,6 +55,7 @@ function cutAt(text) {
 export function createVoice({ getSettings, sounds }) {
   let ctx = null;
   let analyser = null;
+  let out = null;
   let samples = null;
   let gen = 0;
   let abort = new AbortController();
@@ -58,17 +66,28 @@ export function createVoice({ getSettings, sounds }) {
   let fallbackSpeaking = false;
 
   const conf = () => getSettings().voice || {};
+  let volume = toGain(conf().volume);
 
+  // 语音 → analyser（口型按原始音量算，调小声嘴也照样动）→ 音量 → 扬声器；提示音直接进音量
   function audio() {
     if (!ctx) {
       ctx = new AudioContext();
+      out = ctx.createGain();
+      out.gain.value = volume;
+      out.connect(ctx.destination);
       analyser = ctx.createAnalyser();
       analyser.fftSize = 1024;
       samples = new Float32Array(analyser.fftSize);
-      analyser.connect(ctx.destination);
+      analyser.connect(out);
     }
     if (ctx.state === 'suspended') ctx.resume();
     return ctx;
+  }
+
+  // percent：0~100，正在播的语音也立刻跟着变
+  function setVolume(percent) {
+    volume = toGain(percent);
+    out?.gain.setTargetAtTime(volume, ctx.currentTime, 0.03);
   }
 
   // 流式文本：攒够一句就送去合成
@@ -142,6 +161,7 @@ export function createVoice({ getSettings, sounds }) {
       u.lang = 'zh-CN';
       u.rate = 1.1;
       u.pitch = 1.3;
+      u.volume = volume;
       const zh = speechSynthesis.getVoices().find((v) => v.lang.startsWith('zh'));
       if (zh) u.voice = zh;
       u.onend = u.onerror = () => {
@@ -183,10 +203,10 @@ export function createVoice({ getSettings, sounds }) {
     return pumping || queue.length ? 0 : null;
   }
 
-  // pet.json sounds：[[频率 Hz, 起始秒], …]
-  function chime(kind) {
+  // pet.json sounds：[[频率 Hz, 起始秒], …]；force：关了提示音也响（调音量时试听）
+  function chime(kind, force = false) {
     const notes = sounds()[kind];
-    if (!notes || !conf().sfx) return;
+    if (!notes || !(conf().sfx || force)) return;
     const c = audio();
     const t0 = c.currentTime + 0.02;
     for (const [hz, at] of notes) {
@@ -197,7 +217,7 @@ export function createVoice({ getSettings, sounds }) {
       gain.gain.setValueAtTime(0, t0 + at);
       gain.gain.linearRampToValueAtTime(0.12, t0 + at + 0.015);
       gain.gain.exponentialRampToValueAtTime(0.001, t0 + at + 0.28);
-      osc.connect(gain).connect(c.destination);
+      osc.connect(gain).connect(out);
       osc.start(t0 + at);
       osc.stop(t0 + at + 0.3);
     }
@@ -210,6 +230,7 @@ export function createVoice({ getSettings, sounds }) {
     stop,
     level,
     chime,
+    setVolume,
     get active() {
       return !!source || fallbackSpeaking || pumping || queue.length > 0;
     },
