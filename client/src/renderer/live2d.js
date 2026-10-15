@@ -1,5 +1,5 @@
 // Live2D 角色（Cubism 3/4/5）：setBase / setTalking / react / setLayer / flash / motion / setOutfit / propAt / zoneAt
-//   / hitTest / setNotes / setLipSync / setPeek / setClip / topY / box（onMeasure）
+//   / hitTest / setNotes / setLipSync / topY
 // 引擎在导入时就要求 window.Live2DCubismCore 存在，所以本模块必须在 Core 加载后再动态导入
 import { Application, extensions } from 'pixi.js';
 import { Live2DModel, Live2DPlugin } from 'untitled-pixi-live2d-engine/cubism';
@@ -11,8 +11,6 @@ const FLASH_HOLD = 2.5;
 const MEASURE_DELAY = 1200;
 // 同一槽位里后面的层覆盖前面的层（例如挥手的「双手比耶」暂时替换换装的「喵喵手」）
 const LAYER_ORDER = ['activity', 'task', 'emotion', 'flash', 'hover'];
-// 贴边探头时视线朝屏幕里面的方向
-const PEEK_LOOK = { left: [1, 0], right: [-1, 0], top: [0, 1], bottom: [0, -1] };
 
 // 角色包里的 live2d.json 未提供时使用的默认映射（按 DS 鲸鱼娘的表情名）
 // 前 16 个是模型回复开头可用的情绪标签（与 server/app.py REPLY_RULES 一致），其余是桌宠内部用的
@@ -57,7 +55,6 @@ const DEFAULT_PROFILE = {
   ],
   // 写本本：pet.json 里右手「写本本」选项（点菜板按下 + sweep 参数摆动），写的时候左手道具让位
   notes: { option: '写本本', clears: 'lhand' },
-  peekTilt: { ParamAngleZ: 12, ParamBodyAngleZ: 5 },
   mouthParam: 'ParamMouthOpenY',
 };
 
@@ -76,13 +73,6 @@ export class Live2DPet {
     this.sounds = {};
     this.notes = false;
     this.notesW = 0;
-    this.peekSide = '';
-    this.peekTilt = 0;
-    this.peekW = 0;
-    this.clip = null;
-    this.box = null;
-    this.onMeasure = null;
-    this.lastPeek = 0;
     this.lipSync = null;
     this._pixel = new Uint8Array(4);
   }
@@ -182,48 +172,22 @@ export class Live2DPet {
     this._measureTimer = setTimeout(() => this.measureTop(), MEASURE_DELAY);
   }
 
-  // 模型包围盒四周有大片透明区域，直接扫描画布找到不透明像素的范围（窗口坐标），量完通知 onMeasure
+  // 模型包围盒顶部有大片透明区域，直接扫描画布找到最高的不透明像素
   measureTop() {
     const gl = this.app?.renderer.gl;
     if (!gl) return;
     const { width, height } = this.canvas;
     const pixels = new Uint8Array(width * height * 4);
     gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    let [x0, x1, r0, r1] = [width, -1, height, -1];
-    for (let row = 0; row < height; row += 2) {
-      for (let col = 0, i = row * width * 4 + 3; col < width; col += 2, i += 8) {
-        if (pixels[i] <= 10) continue;
-        x0 = Math.min(x0, col);
-        x1 = Math.max(x1, col);
-        r0 = Math.min(r0, row);
-        r1 = Math.max(r1, row);
+    const rowBytes = width * 4;
+    for (let row = height - 1; row >= 0; row--) {
+      for (let i = row * rowBytes + 3, end = i + rowBytes; i < end; i += 8) {
+        if (pixels[i] > 10) {
+          this.topY = (height - 1 - row) / this.app.renderer.resolution;
+          return;
+        }
       }
     }
-    if (x1 < 0) return;
-    const res = this.app.renderer.resolution;
-    this.topY = (height - 1 - r1) / res;
-    this.box = {
-      left: Math.floor(x0 / res),
-      top: Math.floor(this.topY),
-      right: Math.ceil((x1 + 1) / res),
-      bottom: Math.ceil((height - r0) / res),
-      face: this.faceRect(),
-    };
-    this.onMeasure?.(this.box);
-  }
-
-  // 脸部触摸区换算成窗口坐标
-  faceRect() {
-    const m = this.model;
-    const z = this.profile.zones.find((zone) => zone.id === 'face');
-    const left = m.x - m.width * m.anchor.x;
-    const top = m.y - m.height * m.anchor.y;
-    return {
-      cx: Math.round(left + z.x * m.width),
-      w: Math.round(2 * z.rx * m.width),
-      top: Math.round(top + (z.y - z.ry) * m.height),
-      bottom: Math.round(top + (z.y + z.ry) * m.height),
-    };
   }
 
   // ---------- 状态与表情层 ----------
@@ -273,25 +237,6 @@ export class Live2DPet {
     this.lipSync = fn;
   }
 
-  // 贴边探头：side 'left' / 'right' / 'top' / 'bottom' / '' 不探头；探头时望向屏幕里面，左右探头时歪着头
-  setPeek(side) {
-    const [dx, dy] = PEEK_LOOK[side] || [0, 0];
-    this.peekSide = side;
-    this.peekTilt = -dx;
-    if (!side) return;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    this.model?.focus(w / 2 + dx * w * 2, this.topY + 60 + dy * h * 2);
-  }
-
-  // 只有 clip 范围内（窗口坐标）显示、能点到；null 表示不裁
-  setClip(clip) {
-    this.clip = clip;
-    this.canvas.style.clipPath = clip
-      ? `inset(${clip.top}px ${window.innerWidth - clip.right}px ${window.innerHeight - clip.bottom}px ${clip.left}px)`
-      : '';
-  }
-
   // outfit：{ 槽位 id: 选项 label }，对应 pet.json 里该选项的 expressions
   setOutfit(outfit = {}) {
     this.outfitLooks = this.slots.flatMap((slot) => {
@@ -337,7 +282,7 @@ export class Live2DPet {
   }
 
   setPointer(clientX, clientY) {
-    if (!this.peekSide) this.model?.focus(clientX, clientY);
+    this.model?.focus(clientX, clientY);
   }
 
   // 屏幕坐标 → 模型包围盒内的比例坐标
@@ -365,8 +310,6 @@ export class Live2DPet {
     const x = Math.floor(clientX * ratio);
     const y = Math.floor(this.canvas.height - clientY * ratio);
     if (x < 0 || y < 0 || x >= this.canvas.width || y >= this.canvas.height) return false;
-    const c = this.clip;
-    if (c && (clientX < c.left || clientX >= c.right || clientY < c.top || clientY >= c.bottom)) return false;
     gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this._pixel);
     return this._pixel[3] > 10;
   }
@@ -418,9 +361,6 @@ export class Live2DPet {
       else this.weights.set(name, w);
     }
     this.notesW += ((this.notes ? 1 : 0) - this.notesW) * k;
-    this.peekW += ((this.peekSide ? 1 : 0) - this.peekW) * k;
-    if (this.peekSide) this.lastPeek = this.peekTilt;
-
     const t = performance.now() / 1000;
     const level = this.lipSync?.();
     const target = level != null ? level : this.talking ? 0.5 + 0.45 * Math.sin(t * 17) * Math.sin(t * 7.3) : 0;
@@ -456,12 +396,6 @@ export class Live2DPet {
       for (const [id, v] of Object.entries(this.sweepValues(performance.now() / 1000))) {
         const idx = this.paramIndex.get(id);
         if (idx != null) core.setParameterValueByIndex(idx, v, this.notesW);
-      }
-    }
-    if (this.peekW > 0.01) {
-      for (const [id, v] of Object.entries(this.profile.peekTilt)) {
-        const idx = this.paramIndex.get(id);
-        if (idx != null) core.addParameterValueByIndex(idx, -this.lastPeek * v, this.peekW);
       }
     }
     const mouthIdx = this.paramIndex.get(this.profile.mouthParam);

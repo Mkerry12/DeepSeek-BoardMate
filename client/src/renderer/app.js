@@ -53,11 +53,8 @@ let abortCtrl = null;
 let bubbleTimer = null;
 let eraseArmedAt = 0;
 let whaleTimer = null;
-let peek = { side: '', open: false, clip: null };
 const pet = await createPet();
 pet.setOutfit(settings.outfit);
-pet.onMeasure = (box) => window.desk.setPetBounds(box);
-if (pet.box) window.desk.setPetBounds(pet.box);
 
 const voice = createVoice({ getSettings: () => settings, sounds: () => pet.sounds });
 pet.setLipSync(() => voice.level());
@@ -158,34 +155,15 @@ function showBubble(nodes, holdMs) {
   placeBubble();
   bubbleText.scrollTop = bubbleText.scrollHeight;
   if (holdMs) bubbleTimer = setTimeout(hideBubble, holdMs);
-  syncPeekHold();
 }
 
-// 左右探头时气泡挪到露在屏幕里的那一截上
 function placeBubble() {
-  const c = peek.clip;
-  const sideways = c && !peek.open && (peek.side === 'left' || peek.side === 'right');
-  bubble.style.left = sideways ? `${(c.left + c.right) / 2}px` : '';
-  bubble.style.maxWidth = sideways ? `${c.right - c.left - 16}px` : '';
   bubble.style.top = `${Math.max(8, (pet.topY ?? 0) - bubble.offsetHeight - BUBBLE_GAP)}px`;
 }
 
 function hideBubble() {
   bubble.classList.add('leaving');
-  bubbleTimer = setTimeout(() => {
-    bubble.classList.add('hidden');
-    syncPeekHold();
-  }, 180);
-}
-
-// 贴边藏着时，打开聊天框/菜单/设置就整个滑出来；从上边探头时头顶的气泡在屏幕外，说话也得滑出来
-let peekHeld = false;
-function syncPeekHold() {
-  const ui = menu.isOpen || !chatForm.classList.contains('hidden') || !settingsForm.classList.contains('hidden');
-  const hold = ui || (peek.side === 'top' && !bubble.classList.contains('hidden'));
-  if (hold === peekHeld) return;
-  peekHeld = hold;
-  window.desk.holdPeek(hold);
+  bubbleTimer = setTimeout(() => bubble.classList.add('hidden'), 180);
 }
 
 const clip = (text, n) => (text.length > n ? `${text.slice(0, n)}…` : text);
@@ -347,7 +325,6 @@ chatSend.addEventListener('click', (e) => {
 function toggleChat(show = chatForm.classList.contains('hidden')) {
   chatForm.classList.toggle('hidden', !show);
   if (show) chatInput.focus();
-  syncPeekHold();
 }
 
 chatForm.addEventListener('submit', (e) => {
@@ -428,7 +405,6 @@ function openSettings() {
   setStatus('');
   f.classList.remove('hidden');
   f.querySelector('.panel-body').scrollTop = 0;
-  syncPeekHold();
   if (settings.mode === 'official' && settings.token) loadServerModels();
 }
 
@@ -454,7 +430,6 @@ function closeSettings() {
   if (settingsForm.classList.contains('hidden')) return;
   settingsForm.classList.add('hidden');
   voice.setVolume(settings.voice.volume);
-  syncPeekHold();
 }
 
 const minutes = (input, fallback) => Math.min(600, Math.max(1, Math.round(Number(input.value)) || fallback));
@@ -536,7 +511,6 @@ settingsTest.addEventListener('click', async () => {
 const menu = createMenu($('menu'), {
   onToggle: (open) => {
     if (open) setIgnore(false);
-    syncPeekHold();
   },
 });
 
@@ -730,10 +704,7 @@ window.addEventListener('mousemove', (e) => {
   pet.setHover(prop && props[prop].look);
   canvas.style.cursor = prop || zone === 'whale' ? 'pointer' : zone === 'head' ? 'grab' : '';
   const overPet = !!prop || pet.hitTest(e.clientX, e.clientY);
-  if (overPet) {
-    idle.poke();
-    if (peek.side && !peek.open) window.desk.openPeek();
-  }
+  if (overPet) idle.poke();
   setIgnore(!(isOverUI(e.target) || overPet));
 });
 
@@ -782,16 +753,6 @@ canvas.addEventListener('click', (e) => {
     pet.react(emotion);
     if (!abortCtrl) say(line, 3000);
   }
-});
-
-window.desk.onPeek((state) => {
-  const changed = state.side !== peek.side || state.open !== peek.open;
-  peek = state;
-  pet.setClip(state.clip);
-  if (!bubble.classList.contains('hidden')) placeBubble();
-  if (!changed) return;
-  pet.setPeek(state.open ? '' : state.side);
-  syncPeekHold();
 });
 
 canvas.addEventListener('dblclick', (e) => {
