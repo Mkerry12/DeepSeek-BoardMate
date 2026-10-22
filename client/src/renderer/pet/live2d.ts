@@ -1,8 +1,10 @@
 // Live2D 角色（Cubism 3/4/5）：setBase / setTalking / react / setLayer / flash / motion / setOutfit / propAt / zoneAt
 //   / hitTest / setNotes / setLipSync / topY
-// 引擎在导入时就要求 window.Live2DCubismCore 存在，所以本模块必须在 Core 加载后再动态导入
+// 引擎在导入时就要求 window.Live2DCubismCore 存在，所以本模块必须在 Core 加载后再动态导入（见 ./load.ts）
 import { Application, extensions } from 'pixi.js';
 import { Live2DModel, Live2DPlugin } from 'untitled-pixi-live2d-engine/cubism';
+import type { Outfit } from '../../shared/types';
+import type { Live2DProfile } from '../character/config';
 
 const BOTTOM_MARGIN = 6;
 const FADE_SPEED = 8;
@@ -10,74 +12,101 @@ const EMOTION_HOLD = 6;
 const FLASH_HOLD = 2.5;
 const MEASURE_DELAY = 1200;
 // 同一槽位里后面的层覆盖前面的层（例如挥手的「双手比耶」暂时替换换装的「喵喵手」）
-const LAYER_ORDER = ['activity', 'task', 'emotion', 'flash', 'hover'];
+const LAYER_ORDER = ['activity', 'task', 'emotion', 'flash', 'hover'] as const;
 
-// 角色包里的 live2d.json 未提供时使用的默认映射（按 DS 鲸鱼娘的表情名）
-// 前 16 个是模型回复开头可用的情绪标签（与 server/app.py REPLY_RULES 一致），其余是桌宠内部用的
-const DEFAULT_PROFILE = {
-  states: {
-    thinking: ['画笔', '问号'],
-    queued: ['感叹号'],
-  },
-  emotions: {
-    happy: { looks: ['开心兴奋', '情绪花花', '脸红'] },
-    wave: { looks: ['双手比耶', '开心兴奋'], motion: 'SprayWater', secs: 2 },
-    sad: { looks: ['悲伤', '流汗'] },
-    angry: { looks: ['生气'], motion: 'Hammer', secs: 4.8 },
-    surprised: { looks: ['感叹号', '星星眼'] },
-    relaxed: { looks: ['调皮', '脸红'] },
-    shy: { looks: ['爱心眼', '冒爱心', '心跳', '脸红'] },
-    love: { looks: ['爱心眼', '冒爱心', '情绪花花', '脸红'] },
-    cry: { looks: ['大哭', '流汗'] },
-    confused: { looks: ['呆呆眼', '问号'] },
-    dizzy: { looks: ['晕晕', '流汗'] },
-    speechless: { looks: ['阴暗', '吐魂'] },
-    proud: { looks: ['星星眼', '调皮', '情绪花花'] },
-    sleepy: { looks: ['闭眼口水'] },
-    soulout: { looks: ['吐魂', '呆呆眼', '流汗'] },
-    pat: { looks: ['爱心眼', '心跳', '脸红'] },
-    blush: { looks: ['脸红', '感叹号'] },
-  },
-  // 桌上纸张里的三个图标：中心与半径都按模型包围盒的比例给出，任意缩放下都成立
-  props: {
-    undo: { look: '撤回', x: 0.327, y: 0.794 },
-    brush: { look: '画笔', x: 0.445, y: 0.796 },
-    eraser: { look: '橡皮', x: 0.569, y: 0.799 },
-  },
-  propRadius: { x: 0.05, y: 0.034 },
-  propBlockers: ['蛋包饭'],
-  // 触摸区（椭圆，同样按包围盒比例），按顺序命中；when：对应表情亮着才算
-  zones: [
-    { id: 'whale', x: 0.49, y: 0.245, rx: 0.13, ry: 0.065, when: '头顶鲸' },
-    { id: 'whale', x: 0.62, y: 0.79, rx: 0.11, ry: 0.05, when: '鲸鱼放桌上' },
-    { id: 'face', x: 0.49, y: 0.56, rx: 0.17, ry: 0.07 },
-    { id: 'head', x: 0.51, y: 0.39, rx: 0.28, ry: 0.1 },
-  ],
-  // 写本本：pet.json 里右手「写本本」选项（点菜板按下 + sweep 参数摆动），写的时候左手道具让位
-  notes: { option: '写本本', clears: 'lhand' },
-  mouthParam: 'ParamMouthOpenY',
-};
+export type LayerKey = (typeof LAYER_ORDER)[number];
+
+/** pet.json 里 expressionSlots 的一项 */
+export interface SlotOption {
+  label: string;
+  expressions?: string[];
+  motion?: string;
+  clears?: unknown;
+  sweep?: Sweep;
+}
+
+export interface ExpressionSlot {
+  id: string;
+  label: string;
+  none: string;
+  options: SlotOption[];
+}
+
+interface Sweep {
+  x: string;
+  y: string;
+  z: string;
+  rz: string;
+  ampX: number;
+  ampY: number;
+  ampZ: number;
+  driftY: number;
+  loopMs: number;
+  driftMs: number;
+}
+
+/** pet.json sounds：[[频率 Hz, 起始秒], …] */
+export type Sounds = Record<string, [number, number][]>;
+
+interface ExpressionParam {
+  Id: string;
+  Value: number;
+  Blend?: 'Add' | 'Multiply' | 'Overwrite';
+}
+
+interface ModelSettings {
+  FileReferences: {
+    Expressions?: { Name: string; File: string }[];
+    Motions?: Record<string, { File: string }[]>;
+  };
+}
+
+// 引擎内部的 Cubism 模型没有导出类型，这里只描述用到的几个方法
+interface CoreModel {
+  getModel(): { parameters: { ids: string[]; defaultValues: Float32Array | number[] } };
+  setParameterValueByIndex(index: number, value: number, weight?: number): void;
+  addParameterValueByIndex(index: number, value: number, weight?: number): void;
+  multiplyParameterValueByIndex(index: number, value: number, weight?: number): void;
+}
+
+const getJson = <T>(url: string | URL): Promise<T> => fetch(url).then((r) => r.json() as Promise<T>);
 
 export class Live2DPet {
-  constructor(canvas) {
+  canvas: HTMLCanvasElement;
+  base = 'idle';
+  talking = false;
+  layers = new Map<LayerKey, { looks: string[]; until: number }>();
+  outfitLooks: string[] = [];
+  slots: ExpressionSlot[] = [];
+  slotOf = new Map<string, string>();
+  mouth = 0;
+  weights = new Map<string, number>();
+  topY = 0;
+  sounds: Sounds = {};
+  notes = false;
+  notesW = 0;
+  lipSync: (() => number | null) | null = null;
+  profile!: Live2DProfile;
+  app?: Application;
+  // 第三方引擎的模型对象：类型声明不全，按 any 处理
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  model?: any;
+  private pixel = new Uint8Array(4);
+  private expressions = new Map<string, ExpressionParam[]>();
+  private motionParams = new Map<string, string[]>();
+  private paramIndex = new Map<string, number>();
+  private paramDefaults: ArrayLike<number> = [];
+  private noteConf?: { slot: string; looks: string[]; sweep?: Sweep; clears?: string };
+  private currentMotion: string | null = null;
+  private reset: { ids: string[]; start: number } | null = null;
+  private measureTimer?: ReturnType<typeof setTimeout>;
+  private motionTimer?: ReturnType<typeof setTimeout>;
+
+  constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    this.base = 'idle';
-    this.talking = false;
-    this.layers = new Map();
-    this.outfitLooks = [];
-    this.slots = [];
-    this.slotOf = new Map();
-    this.mouth = 0;
-    this.weights = new Map();
-    this.topY = 0;
-    this.sounds = {};
-    this.notes = false;
-    this.notesW = 0;
-    this.lipSync = null;
-    this._pixel = new Uint8Array(4);
   }
 
-  async load(modelUrl, profile = DEFAULT_PROFILE) {
+  async load(modelUrl: string, profile: Live2DProfile): Promise<void> {
     this.profile = profile;
     extensions.add(Live2DPlugin);
 
@@ -101,7 +130,7 @@ export class Live2DPet {
     await this.loadExpressions(modelUrl);
     await this.loadSlots(modelUrl);
     await this.loadMotionParams(modelUrl);
-    const core = this.model.internalModel.coreModel;
+    const core = this.model.internalModel.coreModel as CoreModel;
     const { ids, defaultValues } = core.getModel().parameters;
     this.paramIndex = new Map(ids.map((id, i) => [id, i]));
     this.paramDefaults = defaultValues;
@@ -113,32 +142,34 @@ export class Live2DPet {
   }
 
   // 解析 model3.json 中的全部表情文件，自己按帧叠加（引擎自带的表情管理器同时只能有一个）
-  async loadExpressions(modelUrl) {
-    const settings = await fetch(modelUrl).then((r) => r.json());
+  private async loadExpressions(modelUrl: string) {
+    const settings = await getJson<ModelSettings>(modelUrl);
     this.expressions = new Map();
     for (const { Name, File } of settings.FileReferences.Expressions || []) {
-      const exp = await fetch(new URL(File, modelUrl)).then((r) => r.json());
+      const exp = await getJson<{ Parameters?: ExpressionParam[] }>(new URL(File, modelUrl));
       this.expressions.set(Name, exp.Parameters || []);
     }
   }
 
   // 引擎每帧把动作写入的参数存档，动作停了参数也不会自己回去（蛋包饭会一直摆在桌上），
   // 所以记下每个动作独有的参数，停下时淡回默认值
-  async loadMotionParams(modelUrl) {
-    const settings = await fetch(modelUrl).then((r) => r.json());
-    const curves = new Map();
+  private async loadMotionParams(modelUrl: string) {
+    const settings = await getJson<ModelSettings>(modelUrl);
+    const curves = new Map<string, Set<string>>();
     for (const [group, list] of Object.entries(settings.FileReferences.Motions || {})) {
-      const motion = await fetch(new URL(list[0].File, modelUrl)).then((r) => r.json());
+      const motion = await getJson<{ Curves: { Id: string }[] }>(new URL(list[0].File, modelUrl));
       curves.set(group, new Set(motion.Curves.map((c) => c.Id)));
     }
-    const idle = curves.get('Idle') || new Set();
+    const idle = curves.get('Idle') || new Set<string>();
     this.motionParams = new Map([...curves].map(([group, ids]) => [group, [...ids].filter((id) => !idle.has(id))]));
   }
 
   // pet.json 的 expressionSlots：同一槽位的表情驱动同一块美术，只能亮一个
-  async loadSlots(modelUrl) {
+  private async loadSlots(modelUrl: string) {
     try {
-      const pet = await fetch(new URL('pet.json', modelUrl)).then((r) => r.json());
+      const pet = await getJson<{ live2d?: { expressionSlots?: ExpressionSlot[]; sounds?: Sounds } }>(
+        new URL('pet.json', modelUrl),
+      );
       this.slots = pet.live2d?.expressionSlots || [];
       this.sounds = pet.live2d?.sounds || {};
     } catch {
@@ -154,7 +185,7 @@ export class Live2DPet {
     }
   }
 
-  layout() {
+  layout(): void {
     const m = this.model;
     m.scale.set(1);
     const w = window.innerWidth;
@@ -167,15 +198,15 @@ export class Live2DPet {
     this.remeasure();
   }
 
-  remeasure() {
-    clearTimeout(this._measureTimer);
-    this._measureTimer = setTimeout(() => this.measureTop(), MEASURE_DELAY);
+  remeasure(): void {
+    clearTimeout(this.measureTimer);
+    this.measureTimer = setTimeout(() => this.measureTop(), MEASURE_DELAY);
   }
 
   // 模型包围盒顶部有大片透明区域，直接扫描画布找到最高的不透明像素
-  measureTop() {
-    const gl = this.app?.renderer.gl;
-    if (!gl) return;
+  measureTop(): void {
+    const gl = this.gl();
+    if (!gl || !this.app) return;
     const { width, height } = this.canvas;
     const pixels = new Uint8Array(width * height * 4);
     gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
@@ -190,88 +221,95 @@ export class Live2DPet {
     }
   }
 
+  private gl(): WebGLRenderingContext | undefined {
+    return (this.app?.renderer as { gl?: WebGLRenderingContext } | undefined)?.gl;
+  }
+
   // ---------- 状态与表情层 ----------
 
-  setBase(state) {
+  setBase(state: string): void {
     this.base = state;
   }
 
-  setTalking(talking) {
+  setTalking(talking: boolean): void {
     this.talking = talking;
     this.base = talking ? 'talking' : 'idle';
   }
 
-  react(emotion) {
+  react(emotion: string): void {
     if (emotion === 'thinking') return this.setBase('thinking');
-    if (emotion === 'neutral') return this.setLayer('emotion', null);
+    if (emotion === 'neutral') return void this.setLayer('emotion', null);
     const conf = this.profile.emotions[emotion];
     if (!conf) return;
     this.setLayer('emotion', conf.looks, EMOTION_HOLD);
     if (conf.motion) this.motion(conf.motion, conf.secs);
   }
 
-  setLayer(key, looks, seconds) {
-    if (!looks?.length) return this.layers.delete(key);
+  setLayer(key: LayerKey, looks: string[] | null | undefined, seconds?: number): void {
+    if (!looks?.length) {
+      this.layers.delete(key);
+      return;
+    }
     this.layers.set(key, { looks, until: seconds ? performance.now() / 1000 + seconds : Infinity });
   }
 
-  flash(look, seconds = FLASH_HOLD) {
+  flash(look: string, seconds = FLASH_HOLD): void {
     this.setLayer('flash', [look], seconds);
   }
 
-  setHover(look) {
-    this.setLayer('hover', look && [look]);
+  setHover(look: string | null | undefined): void {
+    this.setLayer('hover', look ? [look] : null);
   }
 
-  isLit(name) {
+  isLit(name: string): boolean {
     return (this.weights.get(name) || 0) > 0.5;
   }
 
   // 边回答边在小本本上写字
-  setNotes(on) {
+  setNotes(on: boolean): void {
     this.notes = !!on && !!this.noteConf;
   }
 
   // fn() 返回 0~1 的音量（正在播语音）或 null（没有语音，说话时用正弦口型）
-  setLipSync(fn) {
+  setLipSync(fn: () => number | null): void {
     this.lipSync = fn;
   }
 
   // outfit：{ 槽位 id: 选项 label }，对应 pet.json 里该选项的 expressions
-  setOutfit(outfit = {}) {
+  setOutfit(outfit: Outfit = {}): void {
     this.outfitLooks = this.slots.flatMap((slot) => {
       const opt = outfit[slot.id] && slot.options.find((o) => o.label === outfit[slot.id]);
-      return opt?.expressions || [];
+      return opt ? opt.expressions || [] : [];
     });
     this.remeasure();
   }
 
   // 动作文件都标了 Loop，这里循环播放 secs 秒后淡回待机
-  motion(name, secs = 4) {
-    clearTimeout(this._motionTimer);
+  motion(name: string, secs = 4): void {
+    clearTimeout(this.motionTimer);
     const next = new Set(this.motionParams.get(name) || []);
     this.resetParams(this.leftoverParams().filter((id) => !next.has(id)));
     this.currentMotion = name;
     this.model.motion(name, 0, 3, { loop: true });
-    this._motionTimer = setTimeout(() => this.stopMotion(), secs * 1000);
+    this.motionTimer = setTimeout(() => this.stopMotion(), secs * 1000);
   }
 
-  stopMotion() {
-    clearTimeout(this._motionTimer);
+  stopMotion(): void {
+    clearTimeout(this.motionTimer);
     this.resetParams(this.leftoverParams());
     this.currentMotion = null;
     this.model.motion('Idle', 0, 3);
   }
 
-  leftoverParams() {
-    return [...(this.motionParams.get(this.currentMotion) || []), ...(this.reset?.ids || [])];
+  private leftoverParams(): string[] {
+    return [...((this.currentMotion && this.motionParams.get(this.currentMotion)) || []), ...(this.reset?.ids || [])];
   }
 
-  resetParams(ids) {
+  private resetParams(ids: string[]) {
     this.reset = ids.length ? { ids: [...new Set(ids)], start: performance.now() } : null;
   }
 
-  applyMotionReset(core) {
+  private applyMotionReset(core: CoreModel) {
     if (!this.reset) return;
     const w = Math.min(1, (performance.now() - this.reset.start) / 400);
     for (const id of this.reset.ids) {
@@ -281,12 +319,12 @@ export class Live2DPet {
     if (w >= 1) this.reset = null;
   }
 
-  setPointer(clientX, clientY) {
+  setPointer(clientX: number, clientY: number): void {
     this.model?.focus(clientX, clientY);
   }
 
   // 屏幕坐标 → 模型包围盒内的比例坐标
-  frac(clientX, clientY) {
+  private frac(clientX: number, clientY: number) {
     const m = this.model;
     return {
       fx: (clientX - (m.x - m.width * m.anchor.x)) / m.width,
@@ -294,7 +332,7 @@ export class Live2DPet {
     };
   }
 
-  zoneAt(clientX, clientY) {
+  zoneAt(clientX: number, clientY: number): string | null {
     if (!this.model) return null;
     const { fx, fy } = this.frac(clientX, clientY);
     const zone = this.profile.zones.find(
@@ -303,18 +341,18 @@ export class Live2DPet {
     return zone?.id || null;
   }
 
-  hitTest(clientX, clientY) {
-    const gl = this.app?.renderer.gl;
-    if (!gl) return false;
+  hitTest(clientX: number, clientY: number): boolean {
+    const gl = this.gl();
+    if (!gl || !this.app) return false;
     const ratio = this.app.renderer.resolution;
     const x = Math.floor(clientX * ratio);
     const y = Math.floor(this.canvas.height - clientY * ratio);
     if (x < 0 || y < 0 || x >= this.canvas.width || y >= this.canvas.height) return false;
-    gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this._pixel);
-    return this._pixel[3] > 10;
+    gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.pixel);
+    return this.pixel[3] > 10;
   }
 
-  propAt(clientX, clientY) {
+  propAt(clientX: number, clientY: number): string | null {
     const m = this.model;
     const { props, propRadius, propBlockers } = this.profile;
     if (!m || !props || propBlockers.some((name) => (this.weights.get(name) || 0) > 0.3)) return null;
@@ -327,11 +365,11 @@ export class Live2DPet {
 
   // ---------- 每帧 ----------
 
-  activeLooks() {
+  private activeLooks(): Set<string> {
     const now = performance.now() / 1000;
-    const bySlot = new Map();
-    const put = (looks) => {
-      const group = new Map();
+    const bySlot = new Map<string, string[]>();
+    const put = (looks: string[]) => {
+      const group = new Map<string, string[]>();
       for (const name of looks) {
         const slot = this.slotOf.get(name) ?? name;
         group.set(slot, [...(group.get(slot) || []), name]);
@@ -345,14 +383,14 @@ export class Live2DPet {
       if (layer && now > layer.until) this.layers.delete(key);
       else if (layer) put(layer.looks);
     }
-    if (this.notes) {
-      bySlot.delete(this.noteConf.clears);
+    if (this.notes && this.noteConf) {
+      if (this.noteConf.clears) bySlot.delete(this.noteConf.clears);
       bySlot.set(this.noteConf.slot, this.noteConf.looks);
     }
     return new Set([...bySlot.values()].flat());
   }
 
-  tick(dt) {
+  private tick(dt: number) {
     const active = this.activeLooks();
     const k = 1 - Math.exp(-dt * FADE_SPEED);
     for (const name of new Set([...this.weights.keys(), ...active])) {
@@ -369,7 +407,7 @@ export class Live2DPet {
   }
 
   // pet.json 的 sweep：手在本子上来回划，笔尖一下一下点着纸
-  sweepValues(t) {
+  private sweepValues(t: number): Record<string, number> {
     const s = this.noteConf?.sweep;
     if (!s) return {};
     const p = (2 * Math.PI * t * 1000) / s.loopMs;
@@ -382,7 +420,7 @@ export class Live2DPet {
     };
   }
 
-  applyParams(core) {
+  private applyParams(core: CoreModel) {
     for (const [name, w] of this.weights) {
       for (const p of this.expressions.get(name) || []) {
         const idx = this.paramIndex.get(p.Id);

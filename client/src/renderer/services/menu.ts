@@ -1,6 +1,26 @@
 // 右键菜单（HTML 版，替代系统黑色原生菜单）。子菜单在卡片内逐层展开，始终留在窗口里
-// 菜单项：'-' 分隔线 | { note } 说明文字 | { label, icon, hint, checked, submenu, action, confirm, stay }
-//   submenu：返回子菜单项的函数；confirm：第一次点击先变成确认文案；stay：点完不关闭、原地刷新
+// 各功能模块用 register(order, build) 往菜单里加自己的项，order 小的在上面；'-' 是分隔线
+export type MenuIcon = keyof typeof ICONS;
+
+export interface MenuItem {
+  label: string;
+  icon?: MenuIcon;
+  hint?: string;
+  checked?: boolean;
+  /** 返回子菜单项 */
+  submenu?: () => MenuEntry[] | Promise<MenuEntry[]>;
+  action?: () => unknown;
+  /** 第一次点击先变成确认文案 */
+  confirm?: string;
+  /** 点完不关闭、原地刷新 */
+  stay?: boolean;
+  armed?: boolean;
+}
+
+export type MenuEntry = '-' | { note: string } | MenuItem;
+
+export type MenuBuilder = () => MenuEntry[] | Promise<MenuEntry[]>;
+
 const ICONS = {
   chat: '<path d="M4 5h16v11H9l-5 4z"/>',
   wave: '<circle cx="12" cy="12" r="9"/><path d="M8.5 14a4 4 0 0 0 7 0M9 9.5h.01M15 9.5h.01"/>',
@@ -27,24 +47,44 @@ const ICONS = {
 
 const MARGIN = 8;
 
-function icon(name, className) {
+function icon(name: MenuIcon | undefined | false, className: string): HTMLSpanElement {
   const span = document.createElement('span');
   span.className = className;
   if (name) span.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
   return span;
 }
 
-export function createMenu(el, { onToggle }) {
-  let anchor = { x: 0, y: 0 };
-  let stack = [];
+interface Page {
+  title?: string;
+  build: MenuBuilder;
+  items?: MenuEntry[];
+}
 
-  function itemEl(item) {
+export interface Menu {
+  /** 往右键菜单加一组项；同一个 order 的组按注册顺序排列 */
+  register(order: number, build: MenuBuilder): void;
+  open(x: number, y: number): Promise<void>;
+  close(): void;
+  readonly isOpen: boolean;
+}
+
+export function createMenu(el: HTMLElement, { onToggle }: { onToggle: (open: boolean) => void }): Menu {
+  let anchor = { x: 0, y: 0 };
+  let stack: Page[] = [];
+  const sections: { order: number; build: MenuBuilder }[] = [];
+
+  async function rootItems(): Promise<MenuEntry[]> {
+    const sorted = [...sections].sort((a, b) => a.order - b.order);
+    return (await Promise.all(sorted.map((s) => s.build()))).flat();
+  }
+
+  function itemEl(item: MenuEntry): HTMLElement {
     if (item === '-') {
       const sep = document.createElement('div');
       sep.className = 'menu-sep';
       return sep;
     }
-    if (item.note) {
+    if ('note' in item) {
       const note = document.createElement('div');
       note.className = 'menu-note';
       note.textContent = item.note;
@@ -55,7 +95,7 @@ export function createMenu(el, { onToggle }) {
     btn.className = `menu-item${item.armed ? ' danger' : ''}`;
     const label = document.createElement('span');
     label.className = 'menu-label';
-    label.textContent = item.armed ? item.confirm : item.label;
+    label.textContent = item.armed ? item.confirm! : item.label;
     btn.append(icon(item.icon, 'menu-icon'), label);
     if (item.hint) {
       const hint = document.createElement('span');
@@ -69,7 +109,7 @@ export function createMenu(el, { onToggle }) {
     return btn;
   }
 
-  async function activate(item) {
+  async function activate(item: MenuItem) {
     if (item.submenu) {
       stack.push({ title: item.label, build: item.submenu });
       return show();
@@ -85,13 +125,14 @@ export function createMenu(el, { onToggle }) {
 
   async function show(rebuild = true) {
     const page = stack.at(-1);
+    if (!page) return;
     if (rebuild || !page.items) page.items = await page.build();
-    const nodes = [];
+    const nodes: HTMLElement[] = [];
     if (stack.length > 1) {
       const head = document.createElement('button');
       head.type = 'button';
       head.className = 'menu-head';
-      head.append(icon('back', 'menu-icon'), page.title);
+      head.append(icon('back', 'menu-icon'), page.title ?? '');
       head.addEventListener('click', () => {
         stack.pop();
         show();
@@ -113,9 +154,9 @@ export function createMenu(el, { onToggle }) {
     el.style.transformOrigin = `${anchor.x - left}px ${anchor.y - top}px`;
   }
 
-  async function open(x, y, build) {
+  async function open(x: number, y: number) {
     anchor = { x, y };
-    stack = [{ build }];
+    stack = [{ build: rootItems }];
     el.classList.remove('opening');
     await show();
     void el.offsetWidth;
@@ -131,6 +172,7 @@ export function createMenu(el, { onToggle }) {
   }
 
   return {
+    register: (order, build) => void sections.push({ order, build }),
     open,
     close,
     get isOpen() {

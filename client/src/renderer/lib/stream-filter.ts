@@ -1,23 +1,19 @@
-// server/stream_filter.py 的 JS 版：去掉 <think>…</think>，解析回复开头的 [emotion] 标签
-const EMOTIONS = new Set([
-  ...['neutral', 'happy', 'sad', 'angry', 'surprised', 'relaxed', 'thinking', 'wave'],
-  ...['shy', 'love', 'cry', 'confused', 'dizzy', 'speechless', 'proud', 'sleepy'],
-]);
+// server/stream_filter.py 的 TS 版：去掉 <think>…</think>，解析回复开头的 [emotion] 标签
+import { EMOTION_TAGS } from '../../shared/emotions';
+import type { ChatEvent } from '../../shared/types';
+
+const EMOTIONS = new Set(EMOTION_TAGS);
 const OPEN = '<think>';
 const CLOSE = '</think>';
 
 // 非流式结果：去掉 <think> 段（没闭合就去到结尾；只有 </think> 就取它后面）
-export function stripThink(text) {
-  return text
-    .split(CLOSE)
-    .at(-1)
-    .replace(/<think>[\s\S]*?(<\/think>|$)/g, '')
-    .trim();
+export function stripThink(text: string): string {
+  return (text.split(CLOSE).at(-1) ?? '').replace(/<think>[\s\S]*?(<\/think>|$)/g, '').trim();
 }
 const EMOTION_RE = /^\[\s*([a-zA-Z_]+)\s*\]/;
 const MAX_TAG_LEN = 24;
 
-function partialSuffix(text, tag) {
+function partialSuffix(text: string, tag: string): number {
   for (let k = Math.min(tag.length - 1, text.length); k > 0; k--) {
     if (tag.startsWith(text.slice(-k))) return k;
   }
@@ -30,8 +26,8 @@ export class StreamFilter {
   head = '';
   headDone = false;
 
-  feed(text) {
-    const events = [];
+  feed(text: string): ChatEvent[] {
+    const events: ChatEvent[] = [];
     this.buf += text;
     while (true) {
       if (this.inThink) {
@@ -61,8 +57,8 @@ export class StreamFilter {
     return events;
   }
 
-  flush() {
-    const events = [];
+  flush(): ChatEvent[] {
+    const events: ChatEvent[] = [];
     if (!this.inThink && this.buf) events.push(...this.visible(this.buf));
     this.buf = '';
     if (!this.headDone) {
@@ -73,7 +69,7 @@ export class StreamFilter {
     return events;
   }
 
-  visible(text) {
+  private visible(text: string): ChatEvent[] {
     if (!text) return [];
     if (this.headDone) return [{ type: 'delta', text }];
     this.head += text;
@@ -83,14 +79,14 @@ export class StreamFilter {
     const m = EMOTION_RE.exec(head);
     if (m) {
       const emotion = m[1].toLowerCase();
-      const events = EMOTIONS.has(emotion) ? [{ type: 'emotion', value: emotion }] : [];
+      const events: ChatEvent[] = EMOTIONS.has(emotion) ? [{ type: 'emotion', value: emotion }] : [];
       return [...events, ...this.finishHead(head.slice(m[0].length).trimStart())];
     }
     if (head.includes(']') || head.length > MAX_TAG_LEN) return this.finishHead(head);
     return [];
   }
 
-  finishHead(rest) {
+  private finishHead(rest: string): ChatEvent[] {
     this.headDone = true;
     this.head = '';
     return rest ? [{ type: 'delta', text: rest }] : [];

@@ -1,8 +1,10 @@
 // 朗读回复：边流式输出边按句切分 → 依次合成（微软 Edge 神经网络语音）→ WebAudio 顺序播放，用实时音量驱动口型
 // 合成失败时退回 Windows 自带的 speechSynthesis；另外用 pet.json 的 sounds 播放提示音
-import { synthSpeech } from './chat.js';
+import type { SettingsView, VoiceSettings } from '../../shared/types';
+import { synthSpeech } from '../lib/chat-api';
+import type { Sounds } from '../pet/live2d';
 
-export const VOICES = [
+export const VOICES: [id: string, label: string][] = [
   ['zh-CN-XiaoyiNeural', '晓伊 · 活泼可爱'],
   ['zh-CN-XiaoxiaoNeural', '晓晓 · 温柔'],
   ['zh-CN-liaoning-XiaobeiNeural', '晓北 · 东北话'],
@@ -10,6 +12,8 @@ export const VOICES = [
   ['zh-TW-HsiaoYuNeural', '曉雨 · 台湾腔'],
   ['zh-CN-YunxiaNeural', '云夏 · 少年音'],
 ];
+
+export type ChimeKind = 'done' | 'failed' | 'waiting' | 'asking';
 
 const SENTENCE_END = /[。！？!?～~…\n]/;
 const SOFT_BREAK = /[，,；;、]/;
@@ -20,12 +24,12 @@ const GAIN = 6;
 const DEFAULT_VOLUME = 80;
 
 // 设置里的百分比 → 增益，按平方走，小音量那一段调起来更细
-function toGain(percent) {
-  const p = Number.isFinite(percent) ? Math.min(100, Math.max(0, percent)) : DEFAULT_VOLUME;
+function toGain(percent: number | undefined): number {
+  const p = Number.isFinite(percent) ? Math.min(100, Math.max(0, percent as number)) : DEFAULT_VOLUME;
   return (p / 100) ** 2;
 }
 
-export function cleanForSpeech(text) {
+export function cleanForSpeech(text: string): string {
   return text
     .replace(/<think>[\s\S]*?(<\/think>|$)/g, '')
     .replace(/```[\s\S]*?(```|$)/g, '')
@@ -38,9 +42,9 @@ export function cleanForSpeech(text) {
     .trim();
 }
 
-const speakable = (text) => /[\p{L}\p{N}]/u.test(text);
+const speakable = (text: string) => /[\p{L}\p{N}]/u.test(text);
 
-function cutAt(text) {
+function cutAt(text: string): number {
   const end = text.search(SENTENCE_END);
   if (end !== -1) {
     let i = end + 1;
@@ -52,24 +56,35 @@ function cutAt(text) {
   return MAX_SENTENCE;
 }
 
-export function createVoice({ getSettings, sounds }) {
-  let ctx = null;
-  let analyser = null;
-  let out = null;
-  let samples = null;
+export interface Voice {
+  feed(text: string): void;
+  flush(): void;
+  speak(text: string): void;
+  stop(): void;
+  level(): number | null;
+  chime(kind: ChimeKind, force?: boolean): void;
+  setVolume(percent: number): void;
+  readonly active: boolean;
+}
+
+export function createVoice({ getSettings, sounds }: { getSettings: () => SettingsView; sounds: () => Sounds }): Voice {
+  let ctx: AudioContext | null = null;
+  let analyser: AnalyserNode | null = null;
+  let out: GainNode | null = null;
+  let samples: Float32Array<ArrayBuffer> | null = null;
   let gen = 0;
   let abort = new AbortController();
-  let queue = [];
+  let queue: { text: string; data: Promise<ArrayBuffer | null> }[] = [];
   let pending = '';
   let pumping = false;
-  let source = null;
+  let source: AudioBufferSourceNode | null = null;
   let fallbackSpeaking = false;
 
-  const conf = () => getSettings().voice || {};
+  const conf = (): Partial<VoiceSettings> => getSettings().voice || {};
   let volume = toGain(conf().volume);
 
   // 语音 → analyser（口型按原始音量算，调小声嘴也照样动）→ 音量 → 扬声器；提示音直接进音量
-  function audio() {
+  function audio(): AudioContext {
     if (!ctx) {
       ctx = new AudioContext();
       out = ctx.createGain();
@@ -85,13 +100,13 @@ export function createVoice({ getSettings, sounds }) {
   }
 
   // percent：0~100，正在播的语音也立刻跟着变
-  function setVolume(percent) {
+  function setVolume(percent: number) {
     volume = toGain(percent);
-    out?.gain.setTargetAtTime(volume, ctx.currentTime, 0.03);
+    if (ctx) out?.gain.setTargetAtTime(volume, ctx.currentTime, 0.03);
   }
 
   // 流式文本：攒够一句就送去合成
-  function feed(text) {
+  function feed(text: string) {
     if (!conf().on) return;
     pending += text;
     for (let cut; (cut = cutAt(pending)); pending = pending.slice(cut)) enqueue(pending.slice(0, cut));
@@ -102,16 +117,16 @@ export function createVoice({ getSettings, sounds }) {
     pending = '';
   }
 
-  function speak(text) {
+  function speak(text: string) {
     if (!conf().on) return;
     feed(text);
     flush();
   }
 
-  function enqueue(sentence) {
+  function enqueue(sentence: string) {
     const text = cleanForSpeech(sentence);
     if (!speakable(text)) return;
-    const data = synthSpeech(getSettings(), text, conf().name, abort.signal).catch((err) => {
+    const data = synthSpeech(getSettings(), text, conf().name || '', abort.signal).catch((err: Error) => {
       if (!abort.signal.aborted) console.warn('[voice] 合成失败，改用系统语音：', err.message);
       return null;
     });
@@ -124,7 +139,7 @@ export function createVoice({ getSettings, sounds }) {
     pumping = true;
     const mine = gen;
     while (queue.length && mine === gen) {
-      const { text, data } = queue.shift();
+      const { text, data } = queue.shift()!;
       const bytes = await data;
       if (mine !== gen) return;
       if (!bytes || !(await play(bytes))) await speakFallback(text);
@@ -132,14 +147,14 @@ export function createVoice({ getSettings, sounds }) {
     if (mine === gen) pumping = false;
   }
 
-  async function play(bytes) {
+  async function play(bytes: ArrayBuffer): Promise<boolean> {
     try {
       const c = audio();
       const buffer = await c.decodeAudioData(bytes);
-      await new Promise((resolve) => {
+      await new Promise<void>((resolve) => {
         const src = c.createBufferSource();
         src.buffer = buffer;
-        src.connect(analyser);
+        src.connect(analyser!);
         src.onended = () => {
           if (source === src) source = null;
           resolve();
@@ -149,12 +164,12 @@ export function createVoice({ getSettings, sounds }) {
       });
       return true;
     } catch (err) {
-      console.warn('[voice] 播放失败：', err.message);
+      console.warn('[voice] 播放失败：', (err as Error).message);
       return false;
     }
   }
 
-  function speakFallback(text) {
+  function speakFallback(text: string): Promise<void> | undefined {
     if (!window.speechSynthesis) return;
     return new Promise((resolve) => {
       const u = new SpeechSynthesisUtterance(text);
@@ -189,8 +204,8 @@ export function createVoice({ getSettings, sounds }) {
   }
 
   // 口型：正在播语音 → 实时音量；排队合成中 → 闭嘴等着；没有语音 → null（交给正弦口型）
-  function level() {
-    if (source) {
+  function level(): number | null {
+    if (source && analyser && samples) {
       analyser.getFloatTimeDomainData(samples);
       let sum = 0;
       for (const v of samples) sum += v * v;
@@ -204,7 +219,7 @@ export function createVoice({ getSettings, sounds }) {
   }
 
   // pet.json sounds：[[频率 Hz, 起始秒], …]；force：关了提示音也响（调音量时试听）
-  function chime(kind, force = false) {
+  function chime(kind: ChimeKind, force = false) {
     const notes = sounds()[kind];
     if (!notes || !(conf().sfx || force)) return;
     const c = audio();
@@ -217,7 +232,7 @@ export function createVoice({ getSettings, sounds }) {
       gain.gain.setValueAtTime(0, t0 + at);
       gain.gain.linearRampToValueAtTime(0.12, t0 + at + 0.015);
       gain.gain.exponentialRampToValueAtTime(0.001, t0 + at + 0.28);
-      osc.connect(gain).connect(out);
+      osc.connect(gain).connect(out!);
       osc.start(t0 + at);
       osc.stop(t0 + at + 0.3);
     }
