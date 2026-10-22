@@ -5,7 +5,7 @@ import {
   MEMORY_PROMPT,
   memoryRequest,
   systemPrompt,
-} from '../src/renderer/persona.js';
+} from '../src/renderer/lib/persona';
 
 describe('systemPrompt', () => {
   it('uses the default persona when none is given', () => {
@@ -45,7 +45,7 @@ describe('memoryRequest', () => {
   });
 
   it('caps each message at 300 chars and the transcript at 8000', () => {
-    const messages = Array.from({ length: 40 }, () => ({ role: 'user', content: 'x'.repeat(500) }));
+    const messages = Array.from({ length: 40 }, () => ({ role: 'user' as const, content: 'x'.repeat(500) }));
     const [, user] = memoryRequest('- 喜欢猫', messages);
     const transcript = user.content.split('新的对话：\n')[1];
     expect(user.content.startsWith('旧的记忆：\n- 喜欢猫')).toBe(true);

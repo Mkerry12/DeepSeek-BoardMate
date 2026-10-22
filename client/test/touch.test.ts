@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createTouch } from '../src/renderer/touch.js';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { createTouch } from '../src/renderer/features/touch/reactions';
+import { character } from './helpers';
 
-let now;
-let pet;
-let say;
+let now: number;
+let pet: { react: Mock<(emotion: string) => void>; motion: Mock<(name: string, secs?: number) => void> };
+let say: Mock<(text: string, holdMs?: number) => void>;
 
 beforeEach(() => {
   now = 10000;
@@ -18,7 +19,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const make = (quiet = false) => createTouch({ pet, say, quiet: () => quiet });
+const make = (quiet = false) => createTouch({ pet, say, quiet: () => quiet, config: character.touch });
 
 describe('tap zones', () => {
   it('head pats, face blushes, whale sprays, others fall through', () => {

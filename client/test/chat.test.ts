@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { apiTarget, serverBase, streamChat, summarizeMemory } from '../src/renderer/chat.js';
-import { MEMORY_MAX_CHARS } from '../src/renderer/persona.js';
+import { apiTarget, serverBase, streamChat, summarizeMemory, type ConnSettings } from '../src/renderer/lib/chat-api';
+import { MEMORY_MAX_CHARS } from '../src/renderer/lib/persona';
+import type { ChatEvent } from '../src/shared/types';
 
-function streamResponse(chunks, init = {}) {
+function streamResponse(chunks: string[], init: ResponseInit = {}) {
   const encoder = new TextEncoder();
   const body = new ReadableStream({
     start(controller) {
@@ -13,17 +14,24 @@ function streamResponse(chunks, init = {}) {
   return new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' }, ...init });
 }
 
-const jsonResponse = (data, status = 200) =>
+const jsonResponse = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 
-async function collect(iter) {
-  const out = [];
+async function collect(iter: AsyncIterable<ChatEvent>) {
+  const out: ChatEvent[] = [];
   for await (const ev of iter) out.push(ev);
   return out;
 }
 
-const official = { mode: 'official', serverUrl: 'http://srv/', officialServerUrl: 'http://default', token: 'tok' };
-const apikey = { mode: 'apikey', api: { preset: 'deepseek', key: 'sk-1', model: '' } };
+type FetchArgs = [url: string, init: RequestInit & { headers: Record<string, string>; body: string }];
+const conn = (s: object) => s as ConnSettings;
+const official = conn({
+  mode: 'official',
+  serverUrl: 'http://srv/',
+  officialServerUrl: 'http://default',
+  token: 'tok',
+});
+const apikey = conn({ mode: 'apikey', api: { preset: 'deepseek', key: 'sk-1', model: '' } });
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -35,7 +43,7 @@ describe('serverBase / apiTarget', () => {
 
   it('resolves preset and custom api targets', () => {
     expect(apiTarget(apikey)).toEqual({ baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' });
-    expect(apiTarget({ api: { preset: 'custom', baseUrl: ' https://x.ai/v1/ ', model: ' m ' } })).toEqual({
+    expect(apiTarget(conn({ api: { preset: 'custom', baseUrl: ' https://x.ai/v1/ ', model: ' m ' } }))).toEqual({
       baseUrl: 'https://x.ai/v1',
       model: 'm',
     });
@@ -56,7 +64,7 @@ describe('streamChat (official server)', () => {
     const events = await collect(streamChat({ ...official, model: 'm1', persona: ' 猫 ' }, [], undefined, '记忆'));
     expect(events).toEqual([{ type: 'emotion', value: 'happy' }, { type: 'delta', text: '你好' }, { type: 'done' }]);
 
-    const [url, init] = fetch.mock.calls[0];
+    const [url, init] = fetch.mock.calls[0] as unknown as FetchArgs;
     expect(url).toBe('http://srv/chat');
     expect(init.headers.Authorization).toBe('Bearer tok');
     expect(JSON.parse(init.body)).toEqual({ messages: [], model: 'm1', persona: '猫', memory: '记忆' });
@@ -73,7 +81,7 @@ describe('streamChat (official server)', () => {
 
 describe('streamChat (own API key)', () => {
   it('maps OpenAI-style chunks through the stream filter', async () => {
-    const chunk = (delta) => `data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`;
+    const chunk = (delta: Record<string, string>) => `data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`;
     const fetch = vi.fn(async () =>
       streamResponse([
         chunk({ reasoning_content: '想' }),
@@ -92,7 +100,7 @@ describe('streamChat (own API key)', () => {
       { type: 'delta', text: '搞定' },
       { type: 'done' },
     ]);
-    const [url, init] = fetch.mock.calls[0];
+    const [url, init] = fetch.mock.calls[0] as unknown as FetchArgs;
     expect(url).toBe('https://api.deepseek.com/chat/completions');
     const body = JSON.parse(init.body);
     expect(body.model).toBe('deepseek-chat');
@@ -120,7 +128,9 @@ describe('streamChat (own API key)', () => {
   it('requires an API key before calling the network', async () => {
     const fetch = vi.fn();
     vi.stubGlobal('fetch', fetch);
-    await expect(collect(streamChat({ ...apikey, api: { preset: 'deepseek', key: '' } }, []))).rejects.toMatchObject({
+    await expect(
+      collect(streamChat(conn({ ...apikey, api: { preset: 'deepseek', key: '' } }), [])),
+    ).rejects.toMatchObject({
       status: 401,
     });
     expect(fetch).not.toHaveBeenCalled();

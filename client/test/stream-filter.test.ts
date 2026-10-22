@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { StreamFilter, stripThink } from '../src/renderer/stream-filter.js';
+import { StreamFilter, stripThink } from '../src/renderer/lib/stream-filter';
+import type { ChatEvent } from '../src/shared/types';
 
-function run(chunks) {
+function run(chunks: string[]): ChatEvent[] {
   const filter = new StreamFilter();
   const events = chunks.flatMap((c) => filter.feed(c));
   return [...events, ...filter.flush()];
 }
 
-const text = (events) =>
+const text = (events: ChatEvent[]) =>
   events
     .filter((e) => e.type === 'delta')
     .map((e) => e.text)

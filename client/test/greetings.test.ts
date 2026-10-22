@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { dayKey, inPeriod } from '../src/renderer/greetings.js';
+import { dayKey, inPeriod } from '../src/renderer/features/greetings';
 
-const at = (h, m, day = 22) => new Date(2026, 9, day, h, m);
+const at = (h: number, m: number, day = 22) => new Date(2026, 9, day, h, m);
 
 describe('inPeriod', () => {
-  const lunch = { from: [11, 45], to: [13, 0] };
-  const night = { from: [23, 30], to: [5, 0] };
+  const lunch = { from: [11, 45], to: [13, 0] } as { from: [number, number]; to: [number, number] };
+  const night = { from: [23, 30], to: [5, 0] } as { from: [number, number]; to: [number, number] };
 
   it('handles a same-day window (end exclusive)', () => {
     expect(inPeriod(lunch, at(11, 44))).toBe(false);
