@@ -8,8 +8,22 @@ import re
 
 # 客户端 client/src/renderer/stream-filter.js 里有同样的一份
 EMOTIONS = {
-    "neutral", "happy", "sad", "angry", "surprised", "relaxed", "thinking", "wave",
-    "shy", "love", "cry", "confused", "dizzy", "speechless", "proud", "sleepy",
+    "neutral",
+    "happy",
+    "sad",
+    "angry",
+    "surprised",
+    "relaxed",
+    "thinking",
+    "wave",
+    "shy",
+    "love",
+    "cry",
+    "confused",
+    "dizzy",
+    "speechless",
+    "proud",
+    "sleepy",
 }
 
 _OPEN = "<think>"
@@ -47,16 +61,16 @@ class StreamFilter:
                 idx = self._buf.find(_CLOSE)
                 if idx == -1:
                     keep = _partial_suffix(self._buf, _CLOSE)
-                    self._buf = self._buf[len(self._buf) - keep:] if keep else ""
+                    self._buf = self._buf[len(self._buf) - keep :] if keep else ""
                     break
-                self._buf = self._buf[idx + len(_CLOSE):]
+                self._buf = self._buf[idx + len(_CLOSE) :]
                 self._in_think = False
                 continue
 
             idx = self._buf.find(_OPEN)
             if idx != -1:
                 events += self._visible(self._buf[:idx])
-                self._buf = self._buf[idx + len(_OPEN):]
+                self._buf = self._buf[idx + len(_OPEN) :]
                 self._in_think = True
                 events.append({"type": "thinking"})
                 continue
@@ -99,7 +113,7 @@ class StreamFilter:
             emotion = m.group(1).lower()
             if emotion in EMOTIONS:
                 events.append({"type": "emotion", "value": emotion})
-            return events + self._finish_head(head[m.end():].lstrip())
+            return events + self._finish_head(head[m.end() :].lstrip())
         if "]" in head or len(head) > _MAX_TAG_LEN:
             return self._finish_head(head)
         return []
