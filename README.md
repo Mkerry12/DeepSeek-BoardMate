@@ -38,8 +38,9 @@ copy .env.example .env      # 修改 ACCESS_TOKENS、OLLAMA_MODEL
 cd client
 npm install
 node node_modules/electron/install.js   # 如果 electron 二进制没下载下来
-npm start          # 开发运行
-npm run dist       # 打包成 exe，输出在 client/dist（便携版 + 安装包）
+npm run dev        # 开发运行（Vite 热更新）
+npm run build; npm start   # 构建到 client/out 并运行构建产物
+npm run dist       # 构建 + 打包成 exe，输出在 client/dist（便携版 + 安装包）
 ```
 
 - 角色是 Live2D「DS鲸鱼娘」（`client/assets/live2d/ds-whale-girl/`）
@@ -52,7 +53,7 @@ npm run dist       # 打包成 exe，输出在 client/dist（便携版 + 安装�
 ### 连接方式
 
 - **官方服务器**（默认）：连主人电脑上的 server（Ollama），只需填令牌；「高级」里可改服务器地址。
-  默认地址写在 `client/src/main/main.js` 的 `OFFICIAL_SERVER_URL`，**打包发给朋友前改成花生壳域名**。
+  默认地址写在 `client/src/main/settings.ts` 的 `OFFICIAL_SERVER_URL`，**打包发给朋友前改成花生壳域名**。
   可在设置里选服务器上的模型（`GET /models`，自动排除 bge-m3 等嵌入模型）和自定义人设。
 - **自己的 API Key**：客户端直连 OpenAI 兼容接口，不经过服务器。预设 DeepSeek 官方
   （`deepseek-chat` / `deepseek-reasoner`），或选「自定义」填接口地址 + 模型名（OpenAI、硅基流动、通义等）。
@@ -82,13 +83,13 @@ npm run dist       # 打包成 exe，输出在 client/dist（便携版 + 安装�
 ## 情绪与动作
 
 后端提示词要求模型在回复开头输出 `[happy]` 等标签，客户端据此叠加 Live2D 表情、播放动作
-（映射在 `client/src/renderer/live2d.js` 的 `DEFAULT_PROFILE`）。可用标签：
+（映射在角色目录 `client/assets/live2d/ds-whale-girl/deskmate.json` 的 `live2d.emotions`）。可用标签（唯一来源 `shared/emotion-tags.json`）：
 `happy sad angry surprised relaxed thinking wave neutral`，以及
 `shy`（爱心眼 + 冒爱心 + 心跳 + 脸红）、`love`、`cry`（大哭）、`confused`（呆呆眼 + 问号）、`dizzy`（晕晕）、
 `speechless`（阴暗 + 吐魂）、`proud`、`sleepy`（闭眼口水）。
-默认人设在 `server/app.py` 的 `DEFAULT_PERSONA`（API Key 模式用 `client/src/renderer/persona.js` 里的同一份），
-情绪标签规则在 `REPLY_RULES`；用户在设置里填的人设只替换人设部分。改标签时 `server/stream_filter.py` 与
-`client/src/renderer/stream-filter.js` 的 `EMOTIONS` 也要一起改。
+默认人设在 `server/app.py` 的 `DEFAULT_PERSONA`（API Key 模式用 `client/src/renderer/lib/persona.ts` 里的同一份），
+情绪标签规则在 `REPLY_RULES`；用户在设置里填的人设只替换人设部分。改标签时先改 `shared/emotion-tags.json`
+（客户端自动跟随），再同步 `server/stream_filter.py` 的 `EMOTIONS` 和 `server/app.py` 的 `REPLY_RULES`，两边测试会检查一致性。
 
 服务器的朗读接口需要能访问外网（微软语音服务），相关配置见 `server/.env.example` 里的 `TTS_*`；
 已有的 `server/.venv` 升级后记得重新 `pip install -r requirements.txt`（新增 `edge-tts`）。
@@ -98,11 +99,11 @@ npm run dist       # 打包成 exe，输出在 client/dist（便携版 + 安装�
 欢迎一起开发！环境搭建、分支与提交规范、PR 流程、如何跑 lint / 测试、项目结构和「新增情绪 / 功能改哪里」都在 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ```powershell
-cd client; npm run lint; npm run format:check; npm test         # 客户端
+cd client; npm run typecheck; npm run lint; npm run format:check; npm test   # 客户端
 cd server; .\.venv\Scripts\ruff check .; .\.venv\Scripts\python -m pytest   # 后端（先装 requirements-dev.txt）
 ```
 
-每个 PR 会自动跑 CI（lint、格式、单元测试、gitleaks 密钥扫描），合并前需要 CI 通过并有 1 人 review。
+每个 PR 会自动跑 CI（类型检查、lint、格式、单元测试、构建、gitleaks 密钥扫描），合并前需要 CI 通过并有 1 人 review。
 
 ## 许可
 

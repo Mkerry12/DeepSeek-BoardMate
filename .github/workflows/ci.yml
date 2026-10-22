@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   client:
+    # 名字是分支保护里的必需检查，改名要同步改保护规则
     name: client (lint + test)
     runs-on: ubuntu-latest
     defaults:
@@ -28,11 +29,14 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: client/package-lock.json
-      # 依赖的安装脚本（electron 下载二进制、msedge-tts 的 only-allow pnpm）在 lint/test 里都用不到
+      # 依赖的安装脚本（electron 下载二进制、msedge-tts 的 only-allow pnpm）在这里都用不到
       - run: npm ci --ignore-scripts
+      - run: npm run typecheck
       - run: npm run lint
       - run: npm run format:check
       - run: npm test
+      # Cubism Core 只在运行时加载，构建不需要它
+      - run: npm run build
 
   server:
     name: server (ruff + pytest)
@@ -92,6 +96,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: Download Electron binary
         run: node node_modules/electron/install.js
+      - run: npm run build
       - name: Build portable exe
         run: npx electron-builder --win portable --publish never
         env:
