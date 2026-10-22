@@ -386,7 +386,8 @@ function openSettings() {
   f.apiKey.value = settings.api.key;
   f.apiBase.value = settings.api.baseUrl;
   f.apiModelName.value = settings.api.model;
-  if ([...apiModelSelect.options].some((o) => o.value === settings.api.model)) apiModelSelect.value = settings.api.model;
+  if ([...apiModelSelect.options].some((o) => o.value === settings.api.model))
+    apiModelSelect.value = settings.api.model;
   f.persona.value = settings.persona;
   f.waterOn.checked = settings.reminders.water.on;
   f.waterMin.value = settings.reminders.water.minutes;
@@ -546,7 +547,11 @@ function outfitItems() {
       ],
     };
   });
-  return [...slots, '-', { label: '恢复默认', icon: 'refresh', stay: true, action: () => applyOutfit({ ...DEFAULT_OUTFIT }) }];
+  return [
+    ...slots,
+    '-',
+    { label: '恢复默认', icon: 'refresh', stay: true, action: () => applyOutfit({ ...DEFAULT_OUTFIT }) },
+  ];
 }
 
 function pomodoroItems() {
@@ -641,8 +646,18 @@ async function menuItems() {
     { label: '语音朗读', icon: 'voice', checked: settings.voice.on, action: toggleVoice },
     { label: '她记得的事', icon: 'book', submenu: memoryItems },
     { label: '清空记忆', icon: 'trash', confirm: '再点一次，确认清空', action: clearHistory },
-    { label: '总在最前', icon: 'pin', checked: state.alwaysOnTop, action: () => command('alwaysOnTop', !state.alwaysOnTop) },
-    { label: '开机自启', icon: 'power', checked: state.autostart, action: () => command('autostart', !state.autostart) },
+    {
+      label: '总在最前',
+      icon: 'pin',
+      checked: state.alwaysOnTop,
+      action: () => command('alwaysOnTop', !state.alwaysOnTop),
+    },
+    {
+      label: '开机自启',
+      icon: 'power',
+      checked: state.autostart,
+      action: () => command('autostart', !state.autostart),
+    },
     { label: '隐藏到托盘', icon: 'hide', action: () => command('hide') },
     '-',
     { label: '重新加载', icon: 'refresh', action: () => command('reload') },
