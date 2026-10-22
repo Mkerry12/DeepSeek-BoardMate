@@ -6,7 +6,7 @@
 
 import re
 
-# 客户端 client/src/renderer/stream-filter.js 里有同样的一份
+# 与仓库根目录 shared/emotion-tags.json 保持一致（tests/test_emotion_tags.py 会校验）
 EMOTIONS = {
     "neutral",
     "happy",

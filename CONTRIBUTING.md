@@ -26,7 +26,16 @@ New-Item -ItemType Directory -Force vendor | Out-Null
 Invoke-WebRequest https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js -OutFile vendor/live2dcubismcore.min.js
 ```
 
-然后 `npm start` 就能看到小鲸。
+然后：
+
+```powershell
+npm run dev       # 开发：Vite 开发服务器 + 热更新（改渲染进程代码即时生效，改主进程会自动重启）
+npm run build     # 构建到 out/（main / preload / renderer 各自由 Vite 打包）
+npm start         # 运行 out/ 里的构建产物（接近打包后的行为）
+npm run dist      # build + electron-builder，输出 dist/ 下的便携版和安装包
+```
+
+`vendor/` 是渲染进程的 public 目录：开发时 Cubism Core 由 Vite 提供，构建时复制到 `out/renderer/`。
 
 ### 后端（`server/`）
 
@@ -47,9 +56,11 @@ copy .env.example .env      # 按需修改 ACCESS_TOKENS、OLLAMA_MODEL 等
 ```powershell
 # 客户端
 cd client
-npm run lint          # ESLint
+npm run typecheck     # TypeScript（strict）：main/preload、renderer、测试三份 tsconfig
+npm run lint          # ESLint + typescript-eslint
 npm run format:check  # Prettier 检查（npm run format 自动格式化）
 npm test              # Vitest 单元测试
+npm run build         # 确认能构建
 
 # 后端
 cd server
@@ -58,10 +69,12 @@ cd server
 .\.venv\Scripts\python -m pytest
 ```
 
-- 客户端测试在 `client/test/`，覆盖纯逻辑模块（流式过滤、人设拼接、SSE 解析、记忆、触摸、运势、问候时段）。
+- 客户端测试在 `client/test/`，覆盖纯逻辑模块（流式过滤、人设拼接、SSE 解析、记忆、触摸、运势、问候时段）、
+  事件总线、设置迁移、角色配置校验、IPC 契约，以及情绪标签与服务器的一致性。
   涉及 DOM / Electron 的模块尽量把纯逻辑拆成导出的函数再测。
 - 后端测试在 `server/tests/`，用 FastAPI `TestClient` + `respx` 模拟 Ollama、用假的 `edge_tts` 代替联网，**不依赖本机 `.env`**。
-- 代码风格：JS 单引号、分号、2 空格、行宽 120（`.prettierrc`）；Python 行宽 110（`server/pyproject.toml`）。编辑器请启用 EditorConfig。
+- 代码风格：TS 单引号、分号、2 空格、行宽 120（`.prettierrc`）；Python 行宽 110（`server/pyproject.toml`）。编辑器请启用 EditorConfig。
+- TypeScript 开 `strict`；`any` 只用在第三方库边界（Live2D 引擎的模型对象等），并用 `eslint-disable` 注明。
 
 ### 可选：pre-commit 钩子
 
@@ -89,7 +102,7 @@ pre-commit install
 ## 4. Pull Request 流程
 
 1. 推送分支后开 PR 到 `main`，按模板填写改了什么、怎么测的；界面改动附截图或 GIF。
-2. **CI 必须全绿**：client（lint + format + test）、server（ruff + pytest）、gitleaks 密钥扫描。
+2. **CI 必须全绿**：client（typecheck + lint + format + test + build）、server（ruff + pytest）、gitleaks 密钥扫描。
    需要验证 Windows 打包时给 PR 加 `build` 标签，会额外跑 `build (windows portable)` 并上传 exe。
 3. **至少 1 人 review 通过**后再合并，推荐 Squash merge。
 4. 不要改无关文件；大改动先开 issue 讨论。
@@ -97,38 +110,60 @@ pre-commit install
 ## 5. 项目结构
 
 ```
-client/                     Electron 客户端
-  src/main/main.js          主进程：透明置顶窗口、托盘、设置/历史/记忆读写、DPAPI 加密、Edge 语音
-  src/main/preload.js       暴露给渲染进程的 window.desk API
+shared/emotion-tags.json      情绪标签唯一来源（客户端直接导入，服务器由测试校验）
+client/                       Electron 客户端（TypeScript + electron-vite）
+  electron.vite.config.ts     main / preload / renderer 三份 Vite 构建
+  src/shared/                 主进程和渲染进程共用
+    ipc.ts                    IPC 契约：所有通道、参数和返回值的类型 + preload/主进程的注册辅助
+    types.ts  emotions.ts     设置、聊天消息等共享类型；情绪标签
+  src/main/                   主进程
+    index.ts                  入口：单实例、组装各模块
+    window.ts  tray.ts        透明置顶窗口、托盘
+    settings.ts               设置默认值、旧版迁移、OFFICIAL_SERVER_URL、API Key 的 DPAPI 加密
+    history.ts                聊天记录 / 长期记忆读写
+    ipc.ts                    按契约实现所有 IPC 处理函数（漏实现一个通道会编译失败）
+    drag.ts  system.ts        拖动窗口；剪贴板、系统通知
+    autostart.ts  tts.ts      开机自启；Edge 语音合成
+    paths.ts                  开发 / 打包两种情况下的资源路径
+  src/preload/index.ts        按契约生成 window.desk
   src/renderer/
-    app.js                  入口：组装各模块、鼠标交互、对话气泡、设置面板逻辑
-    live2d.js               Live2D 角色：表情、动作、口型、换装、点击区域（DEFAULT_PROFILE）
-    chat.js                 连接服务器 / OpenAI 兼容接口，SSE 解析
-    stream-filter.js        去掉 <think>、解析 [emotion] 标签（与 server/stream_filter.py 对应）
-    persona.js              默认人设与系统提示词（与 server/app.py 对应）
-    memory.js               长期记忆   voice.js 语音朗读   touch.js 触摸互动
-    greetings.js            按时段问候 idle.js 闲置动作    fortune.js 今日运势
-    assistant.js            喝水/久坐提醒、番茄钟          menu.js 右键菜单
-    index.html / style.css  页面结构（含设置面板）与样式
-  test/                     Vitest 单元测试
-  assets/live2d/            Live2D 模型（CC BY-NC-SA 4.0）
+    main.ts                   入口：创建服务、按顺序安装各功能模块
+    core/                     事件总线（bus）、状态登记（status）、设置/历史（store）、DOM 引用、AppContext
+    services/                 气泡、语音、记忆、右键菜单（按 MENU_ORDER 注册菜单项）
+    features/                 功能模块，每个都是 (ctx) => void：聊天、触摸、闲置、提醒、问候、设置面板、运势、换装……
+    pet/                      Live2D 角色（live2d.ts）和加载流程（先加载 Cubism Core，再动态导入引擎）
+    character/                deskmate.json 的类型与校验
+    lib/                      纯逻辑：服务器/OpenAI 接口与 SSE、流式过滤、人设提示词
+    index.html / style.css    页面结构（含设置面板）与样式
+  test/                       Vitest 单元测试
+  assets/live2d/<角色>/        Live2D 模型（CC BY-NC-SA 4.0）+ deskmate.json 角色数据
 server/
-  app.py                    FastAPI：鉴权、限流、/chat /memory /models /tts /health
-  stream_filter.py          流式过滤
-  tests/                    pytest
+  app.py                      FastAPI：鉴权、限流、/chat /memory /models /tts /health
+  stream_filter.py            流式过滤
+  tests/                      pytest
 ```
+
+### 渲染进程怎么组织
+
+- 功能模块之间不直接互相调用，而是通过 **事件总线** 通信（`core/bus.ts` 的 `AppEvents` 列出所有事件和载荷类型），
+  例如聊天开始时发 `chat:start`，语音、闲置、触摸各自监听；需要查询别人的状态时用 `ctx.status.get('replying')` 之类。
+- 跨进程只走 `window.desk`，它的类型完全来自 `src/shared/ipc.ts`。
 
 ## 6. 常见改动指南
 
-- **新增情绪标签**：要同时改
-  1. `server/stream_filter.py` 和 `client/src/renderer/stream-filter.js` 的 `EMOTIONS`
-  2. `server/app.py` 和 `client/src/renderer/persona.js` 的 `REPLY_RULES`（两份提示词保持一致）
-  3. `client/src/renderer/live2d.js` 的 `DEFAULT_PROFILE`，把标签映射到表情 / 动作
-  4. 两边的测试里补一个用例
-- **新增触摸 / 闲置 / 问候等小互动**：在对应模块（`touch.js`、`idle.js`、`greetings.js`）里加，
-  通过 `pet.react / pet.motion / pet.setLayer / say` 驱动角色，再在 `app.js` 里接线。可测试的判断逻辑请导出并写测试。
+- **新增情绪标签**：
+  1. 加到 `shared/emotion-tags.json`（客户端的流式过滤和提示词自动跟着变）
+  2. 同步 `server/stream_filter.py` 的 `EMOTIONS` 和 `server/app.py` 的 `REPLY_RULES`（两边测试会检查是否一致）
+  3. 在每个角色的 `deskmate.json` 的 `live2d.emotions` 里映射到表情 / 动作（配置校验要求每个标签都有映射）
+- **新增功能模块**：在 `src/renderer/features/` 新建一个 `(ctx: AppContext) => void`，在 `main.ts` 的 `FEATURES` 里加上。
+  需要右键菜单就 `ctx.menu.register(MENU_ORDER.xxx, () => [...])`；和别的模块交互用 `ctx.bus` 的事件（新事件先加到 `AppEvents`）。
+  可测试的判断逻辑请导出成纯函数并写测试。
+- **新增 IPC 通道**：只改 `src/shared/ipc.ts`（契约 + `DESK_API`），然后 TypeScript 会提示 `src/main/ipc.ts` 缺哪个处理函数。
+- **新增 / 修改角色**：在 `client/assets/live2d/<角色>/` 放模型和 `deskmate.json`（台词、触摸区域、闲置活动、换装、运势、问候、提醒），
+  字段和校验见 `src/renderer/character/config.ts`；`npm test` 会校验所有角色目录下的配置。
 - **新增后端接口**：在 `server/app.py` 里用 `Depends(require_token)` 加鉴权和限流，Pydantic 模型限制输入长度，并在 `server/tests/` 加测试。
-- **新增配置项**：后端加到 `.env.example`；客户端设置项的默认值在 `main.js` 的 `defaultSettings`，设置面板在 `index.html` + `app.js`。
+- **新增配置项**：后端加到 `.env.example`；客户端设置的类型在 `src/shared/types.ts`，默认值和迁移在 `src/main/settings.ts`，
+  设置面板在 `index.html` + `features/settings-panel.ts`。
 
 ## 7. 许可
 

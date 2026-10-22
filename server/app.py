@@ -36,7 +36,8 @@ TTS_VOICE = os.getenv("TTS_VOICE", "zh-CN-XiaoyiNeural")
 TTS_MAX_CHARS = int(os.getenv("TTS_MAX_CHARS", "300"))
 TTS_RATE_PER_MIN = int(os.getenv("TTS_RATE_PER_MIN", "90"))
 
-# 客户端「自己的 API Key」模式在 client/src/renderer/persona.js 里有同样的一份，改人设时两边一起改
+# 客户端「自己的 API Key」模式在 client/src/renderer/lib/persona.ts 里有同样的一份，改人设时两边一起改；
+# 情绪标签列表以 shared/emotion-tags.json 为准（tests/test_emotion_tags.py 会校验）
 DEFAULT_PERSONA = """你是"小鲸"，一只住在用户电脑桌面上的 DeepSeek 鲸鱼桌宠，性格活泼、温柔、有点小调皮。"""
 REPLY_RULES = """规则：
 1. 每次回复的最开头必须输出一个情绪标签，只能是以下之一：[happy] [sad] [angry] [surprised] [relaxed] [thinking] [wave] [neutral] [shy] [love] [cry] [confused] [dizzy] [speechless] [proud] [sleepy]

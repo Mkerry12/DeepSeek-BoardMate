@@ -1,0 +1,184 @@
+{
+  "configVersion": 1,
+  "name": "小鲸",
+  "live2d": {
+    "states": {
+      "thinking": ["画笔", "问号"],
+      "queued": ["感叹号"]
+    },
+    "emotions": {
+      "happy": { "looks": ["开心兴奋", "情绪花花", "脸红"] },
+      "wave": { "looks": ["双手比耶", "开心兴奋"], "motion": "SprayWater", "secs": 2 },
+      "sad": { "looks": ["悲伤", "流汗"] },
+      "angry": { "looks": ["生气"], "motion": "Hammer", "secs": 4.8 },
+      "surprised": { "looks": ["感叹号", "星星眼"] },
+      "relaxed": { "looks": ["调皮", "脸红"] },
+      "shy": { "looks": ["爱心眼", "冒爱心", "心跳", "脸红"] },
+      "love": { "looks": ["爱心眼", "冒爱心", "情绪花花", "脸红"] },
+      "cry": { "looks": ["大哭", "流汗"] },
+      "confused": { "looks": ["呆呆眼", "问号"] },
+      "dizzy": { "looks": ["晕晕", "流汗"] },
+      "speechless": { "looks": ["阴暗", "吐魂"] },
+      "proud": { "looks": ["星星眼", "调皮", "情绪花花"] },
+      "sleepy": { "looks": ["闭眼口水"] },
+      "soulout": { "looks": ["吐魂", "呆呆眼", "流汗"] },
+      "pat": { "looks": ["爱心眼", "心跳", "脸红"] },
+      "blush": { "looks": ["脸红", "感叹号"] }
+    },
+    "props": {
+      "undo": { "look": "撤回", "x": 0.327, "y": 0.794 },
+      "brush": { "look": "画笔", "x": 0.445, "y": 0.796 },
+      "eraser": { "look": "橡皮", "x": 0.569, "y": 0.799 }
+    },
+    "propRadius": { "x": 0.05, "y": 0.034 },
+    "propBlockers": ["蛋包饭"],
+    "zones": [
+      { "id": "whale", "x": 0.49, "y": 0.245, "rx": 0.13, "ry": 0.065, "when": "头顶鲸" },
+      { "id": "whale", "x": 0.62, "y": 0.79, "rx": 0.11, "ry": 0.05, "when": "鲸鱼放桌上" },
+      { "id": "face", "x": 0.49, "y": 0.56, "rx": 0.17, "ry": 0.07 },
+      { "id": "head", "x": 0.51, "y": 0.39, "rx": 0.28, "ry": 0.1 }
+    ],
+    "notes": { "option": "写本本", "clears": "lhand" },
+    "mouthParam": "ParamMouthOpenY"
+  },
+  "longReply": { "chars": 150, "whenLit": "头顶鲸", "looks": ["鲸鱼放桌上"], "backMs": 2500 },
+  "clickLines": [
+    { "emotion": "happy", "line": "嘿嘿，被你发现啦～" },
+    { "emotion": "surprised", "line": "哇！吓我一跳！" },
+    { "emotion": "wave", "line": "你好呀！双击我可以聊天哦" },
+    { "emotion": "relaxed", "line": "今天也辛苦啦～" }
+  ],
+  "touch": {
+    "pat": { "emotion": "pat", "lines": ["嘿嘿，好舒服～", "再摸一下嘛", "唔…头发要乱了", "摸摸头，烦恼都飞走啦～"] },
+    "zones": {
+      "face": {
+        "emotion": "blush",
+        "lines": ["呀！不许戳脸！", "脸、脸会被戳红的啦…", "唔…干嘛突然戳我", "软软的吧？嘿嘿"]
+      },
+      "whale": {
+        "emotion": "relaxed",
+        "motion": "SprayWater",
+        "secs": 2.5,
+        "lines": ["小鲸鱼：噗——！", "喷你一脸水！", "不许欺负小鲸鱼～"]
+      }
+    },
+    "dizzy": { "emotion": "dizzy", "lines": ["呜…别戳了别戳了，头好晕…", "眼、眼睛在转圈圈…"] },
+    "angry": { "emotion": "angry", "lines": ["再戳就要锤你啦！", "哼！吃我一锤！"] },
+    "shake": { "emotion": "dizzy", "lines": ["呜哇——别晃啦，头好晕～", "晕、晕了…世界在转圈圈…"] }
+  },
+  "idle": {
+    "activities": [
+      { "motion": "Selfie", "secs": 7, "weight": 2, "lines": ["咔嚓～自拍一张！", "今天的小鲸也很可爱吧？"] },
+      { "motion": "SelfieQuick", "secs": 4, "weight": 1, "lines": ["咔嚓！"] },
+      { "motion": "BubbleGum", "secs": 10, "weight": 2, "avoid": "吐魂", "lines": ["吹个泡泡～", "噗——泡泡破啦"] },
+      {
+        "motion": "Ketchup",
+        "looks": ["蛋包饭", "挤番茄酱"],
+        "secs": 10,
+        "weight": 1,
+        "lines": ["给蛋包饭画个爱心～", "番茄酱要挤满满的！"]
+      },
+      {
+        "looks": ["开心兴奋", "脸红"],
+        "secs": 6,
+        "weight": 2,
+        "unlessOutfit": "desk",
+        "lines": ["偷偷吃一口巴菲…", "巴菲好甜～"]
+      },
+      { "looks": ["调皮", "吐舌"], "secs": 5, "weight": 1, "lines": ["嘿嘿～", "摸鱼中，勿扰～"] },
+      { "looks": ["星星眼", "情绪花花"], "secs": 5, "weight": 1, "lines": ["今天也是元气满满的一天！"] }
+    ],
+    "doze": { "looks": ["闭眼口水"], "line": "呼…Zzz…" },
+    "wake": { "emotion": "surprised", "line": "唔…我才没有睡着！" }
+  },
+  "outfit": {
+    "slots": ["glasses", "sticker", "hair", "rhand", "whale", "claw", "cloth", "desk", "other"],
+    "slotLabels": { "rhand": "手势", "desk": "桌面巴菲" },
+    "optionLabels": { "desk": { "none": "摆着", "巴菲": "收起来" } },
+    "default": { "whale": "头顶鲸" }
+  },
+  "fortune": {
+    "motion": "OpenCase",
+    "levels": [
+      {
+        "name": "大吉",
+        "emotion": "proud",
+        "weight": 2,
+        "words": ["今天做什么都会顺顺利利的！小鲸也沾沾你的好运～", "运气爆棚！要不要去买张彩票…开玩笑的啦～"]
+      },
+      {
+        "name": "中吉",
+        "emotion": "happy",
+        "weight": 3,
+        "words": ["是不错的一天哦，适合把拖着的事情做完！", "好运在向你游过来啦，抓住它～"]
+      },
+      {
+        "name": "小吉",
+        "emotion": "relaxed",
+        "weight": 3,
+        "words": ["平平稳稳就是福，慢慢来不着急～", "小小的幸运藏在细节里，留意一下吧～"]
+      },
+      {
+        "name": "吉",
+        "emotion": "love",
+        "weight": 2,
+        "words": ["今天适合对自己好一点点～", "会遇到让你会心一笑的小事哦～"]
+      },
+      {
+        "name": "末吉",
+        "emotion": "confused",
+        "weight": 1,
+        "words": ["有点小波折，不过有小鲸陪着你呀！", "运气在热身中…先喝口水再出发吧～"]
+      }
+    ],
+    "colors": ["海蓝色", "薄荷绿", "樱花粉", "奶油黄", "星空紫", "珊瑚橙", "云朵白"],
+    "items": ["一杯奶茶", "小鱼干", "蓝色的笔", "耳机", "便利贴", "草莓巴菲", "一颗糖"],
+    "good": ["摸鱼十分钟", "早点睡觉", "喝够八杯水", "整理桌面", "给朋友发个消息", "学一个新单词", "出门晒太阳"],
+    "bad": ["熬夜", "空腹喝咖啡", "和 bug 硬刚", "拖延", "乱发脾气", "久坐不动"]
+  },
+  "greetings": [
+    {
+      "id": "morning",
+      "from": [8, 0],
+      "to": [10, 0],
+      "emotion": "wave",
+      "lines": ["早上好呀！今天也一起加油吧～", "早安！吃早饭了没？小鲸已经醒啦～"]
+    },
+    {
+      "id": "lunch",
+      "from": [11, 45],
+      "to": [13, 0],
+      "looks": ["蛋包饭", "挤番茄酱", "开心兴奋"],
+      "motion": "Ketchup",
+      "secs": 7,
+      "lines": ["中午啦，记得好好吃午饭哦～", "午饭时间到！小鲸给你的蛋包饭画个爱心～"]
+    },
+    {
+      "id": "dinner",
+      "from": [17, 45],
+      "to": [19, 30],
+      "looks": ["蛋包饭", "挤番茄酱", "开心兴奋"],
+      "motion": "Ketchup",
+      "secs": 7,
+      "lines": ["该吃晚饭啦，别饿着肚子哦～", "晚饭时间！今天辛苦啦，吃点好的吧～"]
+    },
+    {
+      "id": "night",
+      "from": [23, 30],
+      "to": [5, 0],
+      "looks": ["阴暗", "闭眼口水"],
+      "secs": 8,
+      "lines": ["已经好晚啦…早点睡吧，小鲸也困了…呼…", "熬夜会变成熊猫眼的哦…快去睡觉吧～晚安"]
+    }
+  ],
+  "reminders": {
+    "water": {
+      "emotion": "surprised",
+      "lines": ["该喝水啦！小鲸陪你一起咕噜咕噜～", "叮～喝口水休息一下吧！", "记得补充水分哦，鲸鱼都离不开水呢～"]
+    },
+    "rest": {
+      "emotion": "wave",
+      "lines": ["坐太久啦，站起来伸个懒腰吧～", "眼睛累了吧？看看远处放松一下～", "起来活动活动，小鲸等你回来！"]
+    }
+  }
+}

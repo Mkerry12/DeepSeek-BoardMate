@@ -7,15 +7,7 @@
       content="default-src 'self' file:; script-src 'self' file: 'unsafe-inline' 'unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: blob:; connect-src * file: data: blob:"
     />
     <title>DeepSeek DeskMate</title>
-    <link rel="stylesheet" href="style.css" />
-    <script type="importmap">
-      {
-        "imports": {
-          "pixi.js": "../../node_modules/pixi.js/dist/pixi.mjs",
-          "untitled-pixi-live2d-engine/cubism": "../../node_modules/untitled-pixi-live2d-engine/dist/cubism.es.js"
-        }
-      }
-    </script>
+    <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
     <div id="bubble" class="hidden"><div id="bubble-text"></div></div>
@@ -165,6 +157,6 @@
       </div>
     </form>
 
-    <script type="module" src="app.js"></script>
+    <script type="module" src="./main.ts"></script>
   </body>
 </html>
