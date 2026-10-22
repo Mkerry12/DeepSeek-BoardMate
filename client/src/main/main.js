@@ -21,7 +21,9 @@ const OFFICIAL_SERVER_URL = 'http://5f8c344a.r15.cpolar.top';
 
 const WIN_W = 280;
 const WIN_H = 430;
-const ASSETS_DIR = app.isPackaged ? path.join(process.resourcesPath, 'assets') : path.join(__dirname, '..', '..', 'assets');
+const ASSETS_DIR = app.isPackaged
+  ? path.join(process.resourcesPath, 'assets')
+  : path.join(__dirname, '..', '..', 'assets');
 const MODEL_DIR = path.join(ASSETS_DIR, 'live2d', 'ds-whale-girl');
 const ICON = path.join(ASSETS_DIR, 'icon.png');
 // Windows 托盘/窗口用多尺寸 ico，系统按 DPI 选最合适的一档
@@ -76,7 +78,8 @@ function normalize(s) {
 function loadSettings() {
   const saved = readJson(settingsFile, {});
   const s = { ...defaultSettings, ...saved };
-  for (const key of ['api', 'reminders', 'outfit', 'voice', 'greeted']) s[key] = { ...defaultSettings[key], ...saved[key] };
+  for (const key of ['api', 'reminders', 'outfit', 'voice', 'greeted'])
+    s[key] = { ...defaultSettings[key], ...saved[key] };
   if (s.api.keyEnc) {
     try {
       s.api.key = safeStorage.decryptString(Buffer.from(s.api.keyEnc, 'base64'));
@@ -235,7 +238,12 @@ function createTray() {
             send('settings');
           },
         },
-        { label: '开机自启', type: 'checkbox', checked: autostartEnabled(), click: (item) => setAutostart(item.checked) },
+        {
+          label: '开机自启',
+          type: 'checkbox',
+          checked: autostartEnabled(),
+          click: (item) => setAutostart(item.checked),
+        },
         { type: 'separator' },
         { label: '退出', click: () => app.quit() },
       ]),

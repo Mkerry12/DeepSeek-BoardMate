@@ -5,7 +5,11 @@ import { StreamFilter, stripThink } from './stream-filter.js';
 import { systemPrompt, memoryRequest, MEMORY_MAX_CHARS } from './persona.js';
 
 export const API_PRESETS = {
-  deepseek: { label: 'DeepSeek 官方', baseUrl: 'https://api.deepseek.com', models: ['deepseek-chat', 'deepseek-reasoner'] },
+  deepseek: {
+    label: 'DeepSeek 官方',
+    baseUrl: 'https://api.deepseek.com',
+    models: ['deepseek-chat', 'deepseek-reasoner'],
+  },
   custom: { label: '自定义（OpenAI 兼容）' },
 };
 
@@ -154,7 +158,12 @@ async function checkApi(settings) {
   if (!settings.api.key) return { chips: [{ text: '还没填 API Key', ok: false }] };
   const res = await fetch(`${baseUrl}/models`, { headers: bearer(settings.api.key) });
   if (res.status === 401 || res.status === 403) {
-    return { chips: [{ text: '接口可访问', ok: true }, { text: API_ERRORS[res.status], ok: false }] };
+    return {
+      chips: [
+        { text: '接口可访问', ok: true },
+        { text: API_ERRORS[res.status], ok: false },
+      ],
+    };
   }
   if (!res.ok) return { chips: [{ text: `接口返回 ${res.status}`, ok: false }] };
   const ids = ((await res.json().catch(() => ({}))).data || []).map((m) => m.id);
@@ -162,7 +171,8 @@ async function checkApi(settings) {
     { text: '接口可访问', ok: true },
     { text: 'Key 有效', ok: true },
   ];
-  if (ids.length) chips.push({ text: ids.includes(model) ? `模型 ${model}` : `没找到模型 ${model}`, ok: ids.includes(model) });
+  if (ids.length)
+    chips.push({ text: ids.includes(model) ? `模型 ${model}` : `没找到模型 ${model}`, ok: ids.includes(model) });
   return { chips };
 }
 
@@ -187,7 +197,9 @@ async function request(url, init, isApi = false) {
     const body = await res.json();
     detail = typeof body.detail === 'string' ? body.detail : body.error?.message || '';
   } catch {}
-  const message = isApi ? API_ERRORS[res.status] || detail || `接口返回 ${res.status}` : detail || `服务器返回 ${res.status}`;
+  const message = isApi
+    ? API_ERRORS[res.status] || detail || `接口返回 ${res.status}`
+    : detail || `服务器返回 ${res.status}`;
   throw httpError(res.status, message);
 }
 

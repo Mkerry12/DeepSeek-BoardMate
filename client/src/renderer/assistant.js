@@ -49,7 +49,11 @@ export function createAssistant({ pet, say, notify, isBusy, wake, chime }) {
 
   function startPhase(phase, minutes) {
     clearTimeout(pomodoro?.timer);
-    pomodoro = { phase, endAt: Date.now() + minutes * 60000, timer: setTimeout(() => finishPhase(phase), minutes * 60000) };
+    pomodoro = {
+      phase,
+      endAt: Date.now() + minutes * 60000,
+      timer: setTimeout(() => finishPhase(phase), minutes * 60000),
+    };
   }
 
   function finishPhase(phase) {

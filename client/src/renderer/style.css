@@ -203,7 +203,10 @@ svg {
   border: none;
   background: transparent;
   color: var(--muted);
-  transition: background 0.15s, color 0.15s, transform 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    transform 0.15s;
 }
 
 .icon-btn svg {
@@ -230,13 +233,17 @@ svg {
   border: 1px solid var(--card-border);
   box-shadow: var(--card-shadow);
   z-index: 3;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
   animation: slide-up 0.28s var(--ease-pop);
 }
 
 #chat:focus-within {
   border-color: var(--brand);
-  box-shadow: var(--card-shadow), 0 0 0 3px rgba(77, 107, 254, 0.18);
+  box-shadow:
+    var(--card-shadow),
+    0 0 0 3px rgba(77, 107, 254, 0.18);
 }
 
 #chat input {
@@ -326,7 +333,9 @@ svg {
   border-radius: 14px;
   background: linear-gradient(180deg, #ffffff 0%, #f7f8ff 100%);
   border: 1px solid var(--card-border);
-  box-shadow: 0 12px 30px rgba(35, 55, 150, 0.22), 0 2px 6px rgba(35, 55, 150, 0.1);
+  box-shadow:
+    0 12px 30px rgba(35, 55, 150, 0.22),
+    0 2px 6px rgba(35, 55, 150, 0.1);
   z-index: 5;
   font-size: 12px;
 }
@@ -357,7 +366,9 @@ svg {
   font-size: 12px;
   text-align: left;
   white-space: nowrap;
-  transition: background 0.12s, color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s;
 }
 
 .menu-item:hover,
@@ -459,7 +470,9 @@ svg {
   border-radius: 18px;
   background: linear-gradient(180deg, var(--brand-soft) 0, #ffffff 60px);
   border: 1px solid var(--card-border);
-  box-shadow: 0 16px 40px rgba(35, 55, 150, 0.28), 0 2px 6px rgba(35, 55, 150, 0.12);
+  box-shadow:
+    0 16px 40px rgba(35, 55, 150, 0.28),
+    0 2px 6px rgba(35, 55, 150, 0.12);
   z-index: 4;
   font-size: 12px;
   animation: bubble-in 0.26s var(--ease-pop);
@@ -547,7 +560,9 @@ svg {
   font-size: 11px;
   font-weight: 600;
   color: var(--muted);
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 
 .seg input:checked + span {
@@ -672,7 +687,10 @@ svg {
   color: var(--text);
   font-family: inherit;
   font-size: 12px;
-  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s,
+    background 0.15s;
 }
 
 .field textarea {
@@ -769,7 +787,10 @@ svg {
   border-radius: 10px;
   font-size: 12px;
   font-weight: 600;
-  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    transform 0.1s;
 }
 
 .btn:active {

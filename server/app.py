@@ -57,6 +57,7 @@ def system_prompt(persona: str | None, memory: str | None = None) -> str:
     memory = (memory or "").strip()[:MEMORY_MAX_CHARS]
     return f"{prompt}\n{MEMORY_INTRO}\n{memory}" if memory else prompt
 
+
 app = FastAPI(title="DeepSeek DeskMate Server")
 app.add_middleware(
     CORSMiddleware,
@@ -153,7 +154,13 @@ async def health():
         ollama_ok = True
     except httpx.HTTPError:
         ollama_ok = False
-    return {"ok": True, "ollama": ollama_ok, "model": OLLAMA_MODEL, "auth": bool(ACCESS_TOKENS), "tts": TTS_VOICE}
+    return {
+        "ok": True,
+        "ollama": ollama_ok,
+        "model": OLLAMA_MODEL,
+        "auth": bool(ACCESS_TOKENS),
+        "tts": TTS_VOICE,
+    }
 
 
 @app.get("/auth-check")
@@ -166,7 +173,7 @@ async def models(_: str = Depends(require_token)):
     try:
         names = await chat_models()
     except httpx.HTTPError:
-        raise HTTPException(status_code=502, detail="无法连接 Ollama")
+        raise HTTPException(status_code=502, detail="无法连接 Ollama") from None
     return {"models": names, "default": OLLAMA_MODEL}
 
 
@@ -176,7 +183,7 @@ async def pick_model(requested: str | None) -> str:
         try:
             available = await chat_models()
         except httpx.HTTPError:
-            raise HTTPException(status_code=502, detail="无法连接 Ollama")
+            raise HTTPException(status_code=502, detail="无法连接 Ollama") from None
         if model not in available:
             raise HTTPException(status_code=400, detail=f"服务器上没有模型 {model}")
     return model
@@ -271,7 +278,7 @@ async def memory(req: MemoryRequest, _: str = Depends(require_token)):
                 r = await client.post(f"{OLLAMA_URL}/api/chat", json=payload)
                 r.raise_for_status()
         except httpx.HTTPError as e:
-            raise HTTPException(status_code=502, detail=f"连接 Ollama 失败: {e.__class__.__name__}")
+            raise HTTPException(status_code=502, detail=f"连接 Ollama 失败: {e.__class__.__name__}") from e
     text = strip_think((r.json().get("message") or {}).get("content", ""))
     return {"memory": "" if "暂无" in text[:8] else clip_lines(text, MEMORY_MAX_CHARS)}
 
@@ -289,7 +296,7 @@ async def tts(req: TTSRequest, _: str = Depends(require_tts_token)):
                 if chunk["type"] == "audio":
                     audio += chunk["data"]
         except Exception as e:
-            raise HTTPException(status_code=502, detail=f"语音合成失败: {e.__class__.__name__}")
+            raise HTTPException(status_code=502, detail=f"语音合成失败: {e.__class__.__name__}") from e
     if not audio:
         raise HTTPException(status_code=502, detail="语音合成失败")
     return Response(bytes(audio), media_type="audio/mpeg", headers={"Cache-Control": "no-store"})

@@ -8,7 +8,11 @@ const CLOSE = '</think>';
 
 // 非流式结果：去掉 <think> 段（没闭合就去到结尾；只有 </think> 就取它后面）
 export function stripThink(text) {
-  return text.split(CLOSE).at(-1).replace(/<think>[\s\S]*?(<\/think>|$)/g, '').trim();
+  return text
+    .split(CLOSE)
+    .at(-1)
+    .replace(/<think>[\s\S]*?(<\/think>|$)/g, '')
+    .trim();
 }
 const EMOTION_RE = /^\[\s*([a-zA-Z_]+)\s*\]/;
 const MAX_TAG_LEN = 24;
