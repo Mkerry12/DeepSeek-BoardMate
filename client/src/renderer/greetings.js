@@ -40,14 +40,14 @@ const PERIODS = [
 const pickOne = (list) => list[Math.floor(Math.random() * list.length)];
 const minutes = ([h, m]) => h * 60 + m;
 
-function inPeriod(p, now) {
+export function inPeriod(p, now) {
   const t = now.getHours() * 60 + now.getMinutes();
   const from = minutes(p.from);
   const to = minutes(p.to);
   return from <= to ? t >= from && t < to : t >= from || t < to;
 }
 
-function dayKey(now) {
+export function dayKey(now) {
   const d = new Date(now.getTime() - DAY_SHIFT_HOURS * 3600000);
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 }
