@@ -131,11 +131,11 @@ export async function loadConfig(modelUrl: string): Promise<CharacterConfig> {
   try {
     raw = await fetch(url).then((r) => r.json());
   } catch (err) {
-    throw new Error(`读不到角色配置 ${CONFIG_FILE}：${(err as Error).message}`);
+    throw new Error(`读不到角色配置 ${CONFIG_FILE}：${(err as Error).message}`, { cause: err });
   }
   try {
     return validateConfig(raw);
   } catch (err) {
-    throw new Error(`角色配置 ${CONFIG_FILE} 有误：${(err as Error).message}`);
+    throw new Error(`角色配置 ${CONFIG_FILE} 有误：${(err as Error).message}`, { cause: err });
   }
 }
