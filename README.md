@@ -1,5 +1,9 @@
 # DeepSeek DeskMate — Live2D AI 桌宠
 
+[![CI](https://github.com/Mkerry12/DeepSeek-BoardMate/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Mkerry12/DeepSeek-BoardMate/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/code-MIT-blue.svg)](LICENSE)
+[![Model: CC BY-NC-SA 4.0](https://img.shields.io/badge/Live2D%20model-CC%20BY--NC--SA%204.0-lightgrey.svg)](client/assets/live2d/ds-whale-girl/LICENSE)
+
 ```
 朋友的 exe ──HTTPS──> 花生壳域名 ──> server (FastAPI :8000) ──> Ollama 127.0.0.1:11434
 ```
@@ -89,8 +93,20 @@ npm run dist       # 打包成 exe，输出在 client/dist（便携版 + 安装�
 服务器的朗读接口需要能访问外网（微软语音服务），相关配置见 `server/.env.example` 里的 `TTS_*`；
 已有的 `server/.venv` 升级后记得重新 `pip install -r requirements.txt`（新增 `edge-tts`）。
 
+## 参与开发
+
+欢迎一起开发！环境搭建、分支与提交规范、PR 流程、如何跑 lint / 测试、项目结构和「新增情绪 / 功能改哪里」都在 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+```powershell
+cd client; npm run lint; npm run format:check; npm test         # 客户端
+cd server; .\.venv\Scripts\ruff check .; .\.venv\Scripts\python -m pytest   # 后端（先装 requirements-dev.txt）
+```
+
+每个 PR 会自动跑 CI（lint、格式、单元测试、gitleaks 密钥扫描），合并前需要 CI 通过并有 1 人 review。
+
 ## 许可
 
-- 代码：暂未指定开源协议（保留所有权利）。
-- Live2D 模型「DS鲸鱼娘」（`client/assets/live2d/ds-whale-girl/`）：**CC BY-NC-SA 4.0**，版权归 上善无形 / ZipZipPipe / 氵六青，详见该目录下的 LICENSE 与 README。
+- 代码：[MIT](LICENSE)。
+- Live2D 模型「DS鲸鱼娘」（`client/assets/live2d/ds-whale-girl/`）**不适用 MIT**，仍为 **CC BY-NC-SA 4.0**（署名、非商用、相同方式共享），版权归 上善无形 / ZipZipPipe / 氵六青，详见该目录下的 LICENSE 与 README。
+  因此包含该模型的打包程序（exe）整体不能用于商业用途。
 - Live2D Cubism Core 为 Live2D Inc. 专有软件，不随本仓库分发，请按上文自行下载到 `client/vendor/`。
