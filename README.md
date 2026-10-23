@@ -4,8 +4,6 @@
 [![License: MIT](https://img.shields.io/badge/code-MIT-blue.svg)](LICENSE)
 [![Model: CC BY-NC-SA 4.0](https://img.shields.io/badge/Live2D%20model-CC%20BY--NC--SA%204.0-lightgrey.svg)](client/assets/live2d/ds-whale-girl/LICENSE)
 
-![Uploading image.png…]()
-
 
 ```
 朋友的 exe ──HTTPS──> 花生壳域名 ──> server (FastAPI :8000) ──> Ollama 127.0.0.1:11434
