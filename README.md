@@ -1,5 +1,9 @@
 # DeepSeek DeskMate — Live2D AI 桌宠
 
+
+<img width="607" height="400" alt="d12ce4bbb9bf125e9bfeba143f529405" src="https://github.com/user-attachments/assets/703f8443-7d1d-43a6-800d-f2bc9af6dbb8" />
+
+
 [![CI](https://github.com/Mkerry12/DeepSeek-BoardMate/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Mkerry12/DeepSeek-BoardMate/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/code-MIT-blue.svg)](LICENSE)
 [![Model: CC BY-NC-SA 4.0](https://img.shields.io/badge/Live2D%20model-CC%20BY--NC--SA%204.0-lightgrey.svg)](client/assets/live2d/ds-whale-girl/LICENSE)
