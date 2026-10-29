@@ -47,6 +47,8 @@ export interface Settings {
   /** 按时段问候：{ 时段 id: 日期 key } */
   greeted: Record<string, string>;
   alwaysOnTop: boolean;
+  /** 安装版自动检查并下载更新（便携版只提示） */
+  autoUpdate: boolean;
   position: WindowPosition | null;
 }
 

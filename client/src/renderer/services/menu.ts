@@ -41,6 +41,7 @@ const ICONS = {
   voice: '<path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4zM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
   book: '<path d="M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2zM5 18a2 2 0 0 1 2-2h11M9 8h5"/>',
   check: '<path d="m5 12 5 5 9-10"/>',
+  download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
   next: '<path d="m9 6 6 6-6 6"/>',
   back: '<path d="m15 6-6 6 6 6"/>',
 };

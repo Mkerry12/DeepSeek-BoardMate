@@ -14,6 +14,7 @@ import { memoryFeature } from './features/memory';
 import { outfitFeature } from './features/outfit';
 import { settingsPanelFeature } from './features/settings-panel';
 import { touchFeature } from './features/touch';
+import { updaterFeature } from './features/updater';
 import { voiceFeature } from './features/voice';
 import { windowMenuFeature } from './features/window-menu';
 import { loadPet } from './pet/load';
@@ -35,6 +36,7 @@ const FEATURES: Feature[] = [
   fortuneFeature,
   outfitFeature,
   windowMenuFeature,
+  updaterFeature,
   keyboardFeature,
 ];
 

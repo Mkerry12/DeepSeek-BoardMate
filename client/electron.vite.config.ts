@@ -1,11 +1,14 @@
 import { resolve } from 'node:path';
 import { defineConfig } from 'electron-vite';
+import { buildDefines } from './build-env';
 
 const root = __dirname;
 
 export default defineConfig({
-  // 主进程 / preload：dependencies（msedge-tts）不打包，由 electron-builder 放进 app.asar 的 node_modules
+  // 主进程 / preload：dependencies（msedge-tts、electron-updater）不打包，由 electron-builder 放进 app.asar 的 node_modules
   main: {
+    // 官方服务器地址：构建时读环境变量 DESKMATE_SERVER_URL（见 build-env.mts）
+    define: buildDefines(),
     build: { rollupOptions: { input: resolve(root, 'src/main/index.ts') } },
   },
   // preload 跑在沙箱里，只能 require('electron')，共享代码会被打包进来

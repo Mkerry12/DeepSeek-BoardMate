@@ -9,12 +9,14 @@ import { modelUrl } from './paths';
 import type { SettingsStore } from './settings';
 import { notify, readClipboard } from './system';
 import { edgeTts } from './tts';
+import type { Updater } from './updater';
 import { getWindow, setAlwaysOnTop } from './window';
 
 interface Stores {
   settings: SettingsStore;
   history: ReturnType<typeof createHistoryStore>;
   memory: ReturnType<typeof createMemoryStore>;
+  updater: Pick<Updater, 'status' | 'check' | 'install' | 'openPage'>;
 }
 
 // 渲染进程里的 HTML 右键菜单需要的操作
@@ -27,7 +29,7 @@ const commands: Record<AppCommand, (arg?: boolean) => void> = {
   quit: () => app.quit(),
 };
 
-export function createHandlers({ settings, history, memory }: Stores): {
+export function createHandlers({ settings, history, memory, updater }: Stores): {
   invoke: InvokeHandlers;
   send: SendHandlers;
 } {
@@ -47,6 +49,8 @@ export function createHandlers({ settings, history, memory }: Stores): {
       'clipboard:read': () => readClipboard(),
       'model:url': () => modelUrl(),
       'app:state': () => ({ alwaysOnTop: settings.get().alwaysOnTop, autostart: autostartEnabled() }),
+      'update:status': () => updater.status(),
+      'update:check': () => updater.check(),
     },
     send: {
       notify: (title, body) => notify(title, body),
@@ -54,6 +58,8 @@ export function createHandlers({ settings, history, memory }: Stores): {
       'drag:start': () => dragStart(),
       'drag:end': () => dragEnd(),
       'app:command': (name, arg) => commands[name]?.(arg),
+      'update:install': () => updater.install(),
+      'update:open-page': () => updater.openPage(),
     },
   };
 }

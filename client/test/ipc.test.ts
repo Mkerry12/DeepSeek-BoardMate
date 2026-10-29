@@ -24,6 +24,12 @@ const fakeStores = () => {
     },
     history: { get: vi.fn(() => []), set: vi.fn() },
     memory: { get: vi.fn(() => null), set: vi.fn() },
+    updater: {
+      status: vi.fn(() => ({ state: 'latest', kind: 'installer', current: '0.2.0' })),
+      check: vi.fn(async () => ({ state: 'latest', kind: 'installer', current: '0.2.0' })),
+      install: vi.fn(),
+      openPage: vi.fn(),
+    },
   } as unknown as Parameters<typeof createHandlers>[0];
 };
 
@@ -81,6 +87,17 @@ describe('IPC contract', () => {
     expect(channel).toBe('menu:action');
     listener({ sender: 1 }, 'settings');
     expect(cb).toHaveBeenCalledWith('settings');
+  });
+
+  it('update channels delegate to the updater', async () => {
+    const stores = fakeStores();
+    const { invoke, send } = createHandlers(stores);
+    expect(await invoke['update:check']()).toMatchObject({ state: 'latest' });
+    expect(invoke['update:status']()).toMatchObject({ current: '0.2.0' });
+    send['update:install']();
+    send['update:open-page']();
+    expect(stores.updater.install).toHaveBeenCalledOnce();
+    expect(stores.updater.openPage).toHaveBeenCalledOnce();
   });
 
   it('settings:set re-applies always-on-top only when the patch touches it', () => {

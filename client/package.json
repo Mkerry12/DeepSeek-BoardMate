@@ -1,13 +1,15 @@
 {
   "name": "deepseek-deskmate",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DeepSeek Live2D 桌宠 (DS鲸鱼娘 + Ollama)",
+  "author": "Mkerry12",
+  "homepage": "https://github.com/Mkerry12/DeepSeek-BoardMate",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
     "build": "electron-vite build",
-    "dist": "electron-vite build && electron-builder --win",
+    "dist": "electron-vite build && electron-builder --win --publish never",
     "typecheck": "tsc --noEmit -p tsconfig.node.json --composite false && tsc --noEmit -p tsconfig.web.json --composite false && tsc --noEmit -p tsconfig.test.json --composite false",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -35,9 +37,24 @@
         "portable",
         "nsis"
       ]
-    }
+    },
+    "nsis": {
+      "artifactName": "DeepSeekDeskMate-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "DeepSeekDeskMate-${version}-portable.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Mkerry12",
+        "repo": "DeepSeek-BoardMate",
+        "releaseType": "draft"
+      }
+    ]
   },
   "dependencies": {
+    "electron-updater": "^6.8.11",
     "msedge-tts": "^2.1.0"
   },
   "devDependencies": {

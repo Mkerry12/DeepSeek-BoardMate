@@ -92,6 +92,7 @@ export const settingsPanelFeature: Feature = ({ bus, store, bubble, voice, statu
     form.voiceOn.checked = settings.voice.on;
     form.sfxOn.checked = settings.voice.sfx;
     form.volume.value = String(settings.voice.volume);
+    form.autoUpdate.checked = settings.autoUpdate;
     showVolume();
     if (![...voiceSelect.options].some((o) => o.value === settings.voice.name)) {
       voiceSelect.add(new Option(settings.voice.name, settings.voice.name));
@@ -135,6 +136,7 @@ export const settingsPanelFeature: Feature = ({ bus, store, bubble, voice, statu
         name: voiceSelect.value,
         volume: Number(form.volume.value),
       },
+      autoUpdate: form.autoUpdate.checked,
       officialServerUrl: store.settings.officialServerUrl,
     } satisfies SettingsPatch;
   }
