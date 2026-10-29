@@ -22,8 +22,12 @@ env/
 !.env.example
 server/.env
 
-# 令牌库等运行时数据（SQLite）
+# 令牌库、音色预设、fetch-voice 下载的参考音频等运行时数据（server/data/ 整个忽略，下面几行是双保险）
 server/data/
+server/data/voices/
+server/data/**/*.ckpt
+server/data/**/*.pth
+server/data/**/*.wav
 *.db
 *.db-wal
 *.db-shm
