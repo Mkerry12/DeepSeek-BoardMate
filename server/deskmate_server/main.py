@@ -8,7 +8,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import TokenAuth
-from .config import Settings
+from .bodylimit import BodyLimitMiddleware
+from .config import OLD_EXAMPLE_TOKENS, Settings
 from .logging_setup import AccessLogMiddleware, logger, setup_logging
 from .ollama import OllamaClient
 from .ratelimit import RateLimiter
@@ -40,6 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.chat_semaphore = asyncio.Semaphore(settings.max_concurrency)
     app.state.tts = TTSService(settings)
 
+    app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -67,5 +69,9 @@ def run() -> None:
     if not app.state.auth.enabled:
         logger.warning(
             "没有任何令牌（ACCESS_TOKENS 为空，令牌库也是空的），任何人都能调用！仅限本机调试使用。"
+        )
+    if any(t in OLD_EXAMPLE_TOKENS for t in settings.env_tokens):
+        logger.warning(
+            "ACCESS_TOKENS 里有旧版 .env.example 的示例令牌（公开仓库里谁都看得到），请尽快删掉，改用令牌库发令牌！"
         )
     uvicorn.run(app, host=settings.host, port=settings.port, access_log=False)

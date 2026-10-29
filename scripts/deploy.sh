@@ -143,6 +143,24 @@ wait_health() {
   return 1
 }
 
+# 本仓库 server/.venv 的 python 跑的后端（app.py 或 -m deskmate_server，不含 tokens 命令），别误杀其他项目的 app.py
+backend_pids() {
+  local pid cmd cwd real
+  real="$(cd "$SERVER" && pwd -P)"
+  for pid in $(pgrep -f '\.venv/bin/python[0-9.]* +(app\.py|-m +deskmate_server)( |$)' 2>/dev/null || true); do
+    cmd="$(ps -o command= -p "$pid" 2>/dev/null || true)"
+    [[ -n "$cmd" ]] || continue
+    if [[ "$cmd" == "$SERVER/.venv/bin/python"* || "$cmd" == "$real/.venv/bin/python"* ]]; then
+      echo "$pid"
+      continue
+    fi
+    # 用相对路径启动的（cd server && .venv/bin/python app.py）：看工作目录
+    cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null || lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' || true)"
+    [[ "$cmd" == .venv/bin/python* && ("$cwd" == "$SERVER" || "$cwd" == "$real") ]] && echo "$pid"
+  done
+  return 0
+}
+
 echo "DeepSeek DeskMate 一键部署"
 echo "仓库：$ROOT"
 has curl || fail "需要 curl"
@@ -183,13 +201,13 @@ NEW_ENV=0
 if [[ ! -f "$ENV_FILE" ]]; then
   cp "$SERVER/.env.example" "$ENV_FILE"
   chmod 600 "$ENV_FILE"
-  # 示例里的 change-me-123 不能留；令牌改用令牌库（下面生成）
+  # 示例里的占位令牌不能留（留着后端拒绝启动）；令牌改用令牌库（下面生成）
   set_env ACCESS_TOKENS ""
   NEW_ENV=1
   ok "已从 .env.example 创建 server/.env"
 else
   ok "server/.env 已存在，保留原有配置"
-  [[ "$(get_env ACCESS_TOKENS)" == *change-me* ]] && warn "ACCESS_TOKENS 还是示例值 change-me-123，建议清空并用令牌库"
+  [[ "$(get_env ACCESS_TOKENS)" =~ change-me|REPLACE-ME ]] && warn "ACCESS_TOKENS 里还有 .env.example 的示例值（公开的，谁都知道），建议清空并用令牌库"
 fi
 [[ -n "$MODEL" ]] && set_env OLLAMA_MODEL "$MODEL"
 MODEL="$(get_env OLLAMA_MODEL)"
@@ -236,7 +254,7 @@ if [[ $GSV_SETUP -eq 1 ]]; then
     [[ -n "$GSV_DIR" ]] && fetch_args+=(--gsv-dir "$GSV_DIR")
     [[ $YES -eq 1 ]] && fetch_args+=(--yes)
     if bash "$ROOT/scripts/fetch-voice.sh" "${fetch_args[@]}"; then
-      HAS_VOICE=1; FETCHED=1; ok "满穗音色已就绪（后端稍后启动时会读到 voices.json）"
+      HAS_VOICE=1; FETCHED=1; ok "满穗音色已就绪（后端稍后启动时会读到 voices.json$([[ $DOCKER -eq 1 ]] && echo '，Docker 模式会复制进容器')）"
     else
       warn "下载满穗音色没成功（见上面的提示），继续部署；以后可以单独运行 scripts/fetch-voice.sh"
     fi
@@ -292,9 +310,11 @@ if [[ $DOCKER -eq 0 ]]; then
 
   if [[ $NO_START -eq 0 ]]; then
     step "启动后端"
-    if pgrep -f "deskmate_server|app.py" >/dev/null 2>&1; then
+    OLD_PIDS="$(backend_pids)"
+    if [[ -n "$OLD_PIDS" ]]; then
       warn "后端已经在运行，先停掉旧进程再用新配置启动"
-      pkill -f "$SERVER/.venv/bin/python app.py" 2>/dev/null || true
+      # shellcheck disable=SC2086
+      kill $OLD_PIDS 2>/dev/null || true
       sleep 1
     fi
     (cd "$SERVER" && nohup "$VENV_PY" app.py >"$SERVER/server.log" 2>&1 &)
@@ -304,6 +324,16 @@ else
   HEALTH_URL="http://127.0.0.1:${DESKMATE_PORT:-8000}/health"
   step "构建并启动后端容器（docker compose）"
   (cd "$ROOT" && docker compose up -d --build) || fail "docker compose up 失败"
+  if [[ -f "$SERVER/data/voices.json" ]]; then
+    # 容器读的是数据卷里的 /app/data/voices.json，不是宿主机的 server/data/voices.json，要复制进去再重启。
+    # 里面的 ref_audio_path 是宿主机路径，由宿主机上的 GPT-SoVITS 读取，不用改（参考音频留在原处别删）
+    if (cd "$ROOT" && docker compose cp server/data/voices.json server:/app/data/voices.json &&
+      docker compose restart server >/dev/null); then
+      ok "已把 server/data/voices.json 复制进容器（/app/data）并重启后端"
+    else
+      warn "复制 voices.json 进容器失败，手动运行：docker compose cp server/data/voices.json server:/app/data/voices.json && docker compose restart server"
+    fi
+  fi
   if [[ $NEW_ENV -eq 1 ]]; then
     if wait_health "$HEALTH_URL" 60 >/dev/null; then
       step "生成访问令牌"

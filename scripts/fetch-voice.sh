@@ -146,9 +146,17 @@ print(d)' "$MANIFEST" "$1"; }
 NAME="$(mf name)"
 ok "清单：$NAME（GPT-SoVITS $(mf gsv_version)）"
 
+mf_file() { # 清单里的文件名只取 basename，不许带 .. 之类跳出目标目录
+  local raw base
+  raw="$(mf "$1.file")"
+  base="$(basename -- "${raw//\\//}")"
+  [[ -n "$base" && "$base" != "." && "$base" != ".." && "$raw" != *..* ]] || fail "清单里的文件名不合法：$raw" >&2
+  echo "$base"
+}
+
 install_asset() { # install_asset 清单键 目标目录
   local file sum size dest
-  file="$(mf "$1.file")"; sum="$(mf "$1.sha256")"; size="$(mf "$1.size")"; dest="$2/$file"
+  file="$(mf_file "$1")"; sum="$(mf "$1.sha256")"; size="$(mf "$1.size")"; dest="$2/$file"
   if [[ "$(sha256 "$dest")" == "$sum" ]]; then ok "$file 已存在且一致，跳过"; return; fi
   echo "    下载 $file（$((size / 1048576)) MB）..."
   get_asset "$file"
@@ -161,9 +169,9 @@ install_asset() { # install_asset 清单键 目标目录
 install_asset gpt_weights "$GPT_DIR"
 install_asset sovits_weights "$SOVITS_DIR"
 install_asset ref_audio "$VOICE_DIR"
-GPT_PATH="$GPT_DIR/$(mf gpt_weights.file)"
-SOVITS_PATH="$SOVITS_DIR/$(mf sovits_weights.file)"
-REF_PATH="$VOICE_DIR/$(mf ref_audio.file)"
+GPT_PATH="$GPT_DIR/$(mf_file gpt_weights)"
+SOVITS_PATH="$SOVITS_DIR/$(mf_file sovits_weights)"
+REF_PATH="$VOICE_DIR/$(mf_file ref_audio)"
 
 # ---------------------------------------------------------------- 4. voices.json
 step "DeskMate 音色预设（voices.json）"
@@ -222,7 +230,7 @@ else
   warn "连不上 $GSV_URL（GPT-SoVITS 没启动），没法在线切换权重"
 fi
 
-GPT_FILE="$(mf gpt_weights.file)"; SOVITS_FILE="$(mf sovits_weights.file)"; GSV_VER="$(mf gsv_version)"
+GPT_FILE="$(mf_file gpt_weights)"; SOVITS_FILE="$(mf_file sovits_weights)"; GSV_VER="$(mf gsv_version)"
 CFG="$GSV_DIR/GPT_SoVITS/configs/tts_infer.yaml"
 echo "    想让 GPT-SoVITS 启动就加载这套权重：把 GPT_SoVITS/configs/tts_infer.yaml 里 custom 段改成"
 echo "      t2s_weights_path: GPT_weights_v2/$GPT_FILE"
@@ -261,5 +269,5 @@ fi
 # ---------------------------------------------------------------- 6. 收尾
 step "完成"
 echo "    DeskMate 后端只在启动时读 voices.json：重启后端才会用上新音色"
-echo "      （本机：停掉后端再 cd server && .venv/bin/python app.py，或重新运行 scripts/deploy.sh；Docker：docker compose restart server）"
+echo "      （本机：停掉后端再 cd server && .venv/bin/python app.py，或重新运行 scripts/deploy.sh；Docker：docker compose cp server/data/voices.json server:/app/data/voices.json && docker compose restart server，或重新运行 deploy.sh --docker）"
 echo "    音色仅限受邀协作者个人使用，禁止二次分发；对外发布合成内容请标注 AI 合成"

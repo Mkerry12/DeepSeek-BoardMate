@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from ..auth import ChatAuth
+from ..logging_setup import logger
 from ..persona import system_prompt
 from ..schemas import ChatRequest
 from ..stream_filter import StreamFilter
@@ -47,13 +48,20 @@ async def chat(req: ChatRequest, request: Request, _: ChatAuth):
             try:
                 async with state.ollama.stream_chat(payload) as r:
                     if r.status_code != 200:
-                        body = (await r.aread()).decode(errors="ignore")[:200]
-                        yield sse({"type": "error", "message": f"Ollama 错误 {r.status_code}: {body}"})
+                        # 错误内容可能带本机路径，只写日志
+                        body = (await r.aread()).decode(errors="ignore")[:500]
+                        logger.warning("Ollama 返回 %s：%s", r.status_code, body)
+                        yield sse({"type": "error", "message": f"模型服务出错（{r.status_code}），稍后再试"})
                         return
                     async for line in r.aiter_lines():
                         if not line:
                             continue
-                        chunk = json.loads(line)
+                        try:
+                            chunk = json.loads(line)
+                        except ValueError:
+                            logger.warning("Ollama 返回了无法解析的数据：%s", line[:200])
+                            yield sse({"type": "error", "message": "模型服务返回了无法解析的数据"})
+                            return
                         msg = chunk.get("message") or {}
                         if msg.get("thinking") and not thinking_sent:
                             thinking_sent = True

@@ -32,7 +32,8 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - deskmate-data:/app/data
-      # 多个 GPT-SoVITS 音色：建好 server/data/voices.json 后取消下面这行注释（或者 docker compose cp 进 /app/data/）。
+      # 多个 GPT-SoVITS 音色：容器读的是这个卷里的 /app/data/voices.json，看不到宿主机的 server/data/voices.json。
+      # deploy 脚本加 --docker / -Docker 时会自动 docker compose cp 进来并重启；也可以取消下面这行注释改成只读挂载。
       # 只用一个音色时不需要，直接在 .env 里填 GSV_REF_AUDIO 等即可
       # - ./server/data/voices.json:/app/data/voices.json:ro
 
