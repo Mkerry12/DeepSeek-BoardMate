@@ -61,6 +61,25 @@ cd server
 `POST /admin/tokens/<标签或id>/revoke`（`Authorization: Bearer <ADMIN_TOKEN>`）。不设置时这些接口不存在（404）。
 因为后端经内网穿透暴露在公网，**不需要的话就别开**，命令行就够用了。
 
+### 用 Docker 运行后端（可选）
+
+不想在本机装 Python 时可以用 Docker（需要 Docker Desktop）。在**仓库根目录**运行，配置仍然读 `server/.env`：
+
+```powershell
+copy server\.env.example server\.env   # 已有 .env 就跳过
+docker compose up -d --build           # 构建并后台启动，监听 127.0.0.1:8000
+docker compose logs -f server          # 看日志
+docker compose exec server python -m deskmate_server.tokens list   # 令牌命令照常用，在容器里执行
+docker compose down                    # 停止（令牌库在数据卷 deskmate-data 里，不会丢）
+```
+
+- 默认连接**宿主机**上的 Ollama（`http://host.docker.internal:11434`）。Linux 上 Ollama 默认只听 `127.0.0.1`，
+  需要设置环境变量 `OLLAMA_HOST=0.0.0.0` 后重启 Ollama，容器才能连上。
+- 想把 Ollama 也放进容器：`$env:DESKMATE_OLLAMA_URL="http://ollama:11434"; docker compose --profile ollama up -d`，
+  再 `docker compose exec ollama ollama pull deepseek-r1:8b` 拉模型（有 NVIDIA 显卡时取消 compose.yaml 里 GPU 那段注释）。
+- 换端口：`$env:DESKMATE_PORT="18000"`。端口只绑定本机回环地址，对外仍然通过内网穿透转发。
+- 镜像以非 root 用户运行，带健康检查；`docker compose ps` 能看到 healthy。
+
 ## 2. 花生壳内网穿透
 
 1. 安装花生壳客户端并登录，添加映射：
