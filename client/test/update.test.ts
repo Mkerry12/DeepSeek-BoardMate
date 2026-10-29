@@ -5,11 +5,23 @@ import {
   checkResultMessage,
   compareVersions,
   installKind,
+  RELEASES_PAGE,
+  releasePageUrl,
   updateAnnouncement,
   updateMenuItem,
   versionFromReleaseUrl,
   type UpdateStatus,
 } from '../src/shared/update';
+
+describe('releasePageUrl', () => {
+  it('only opens https://github.com/ pages', () => {
+    const tag = 'https://github.com/Mkerry12/DeepSeek-BoardMate/releases/tag/v0.2.1';
+    expect(releasePageUrl(tag)).toBe(tag);
+    for (const bad of [undefined, '', 'http://github.com/x', 'https://github.com.evil.io/x', 'file:///C:/x.exe']) {
+      expect(releasePageUrl(bad)).toBe(RELEASES_PAGE);
+    }
+  });
+});
 
 describe('versionFromReleaseUrl', () => {
   it('reads the version from the releases/latest redirect target', () => {

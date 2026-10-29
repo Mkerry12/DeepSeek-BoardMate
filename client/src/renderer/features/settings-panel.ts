@@ -200,7 +200,13 @@ export const settingsPanelFeature: Feature = ({ bus, store, bubble, voice, statu
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const settings = await store.update(formSettings());
+    let settings;
+    try {
+      settings = await store.update(formSettings());
+    } catch (err) {
+      setStatus('bad', `保存失败：${(err as Error).message}`);
+      return;
+    }
     bus.emit('settings:saved', { settings });
     closeSettings();
     bubble.say('设置已保存～', 3000);

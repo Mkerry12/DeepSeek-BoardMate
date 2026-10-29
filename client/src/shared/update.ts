@@ -26,6 +26,11 @@ export interface UpdateStatus {
 
 export const RELEASES_PAGE = 'https://github.com/Mkerry12/DeepSeek-BoardMate/releases/latest';
 
+/** 交给系统浏览器打开的下载页：只认 https://github.com/ 开头的，其他一律换成 RELEASES_PAGE */
+export function releasePageUrl(url: string | undefined): string {
+  return url?.startsWith('https://github.com/') ? url : RELEASES_PAGE;
+}
+
 /** releases/latest 跳转后的地址（…/releases/tag/v0.2.1）里的版本号；不是这个形式返回空串 */
 export function versionFromReleaseUrl(url: string): string {
   const m = /\/releases\/tag\/v?([^/?#]+)/i.exec(url);

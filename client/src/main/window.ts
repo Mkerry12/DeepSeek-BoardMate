@@ -40,9 +40,14 @@ export function createWindow(settings: SettingsStore, dragging: () => boolean): 
       preload: PRELOAD,
       contextIsolation: true,
       nodeIntegration: false,
+      // preload 打包成单文件，只用 contextBridge / ipcRenderer，沙箱里能跑
+      sandbox: true,
       autoplayPolicy: 'no-user-gesture-required',
     },
   });
+  // 桌宠窗口只显示本地页面：不跳转、不开新窗口（外链走主进程 openExternal）
+  win.webContents.on('will-navigate', (e) => e.preventDefault());
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
   win.setAlwaysOnTop(s.alwaysOnTop, 'screen-saver');
   win.setIgnoreMouseEvents(true, { forward: true });

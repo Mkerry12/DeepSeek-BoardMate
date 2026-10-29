@@ -1,4 +1,4 @@
-// 设置：默认值、旧版本迁移、API Key 加密落盘
+// 设置：默认值、旧版本迁移、API Key / 访问令牌加密落盘
 import type { Settings, SettingsPatch, SettingsView } from '../shared/types';
 import { readJson, writeJson } from './json-file';
 
@@ -46,8 +46,18 @@ export function normalize(s: Settings, officialUrl = OFFICIAL_SERVER_URL): Setti
   return s;
 }
 
-/** 磁盘上的设置 → 完整的 Settings：补默认值、解密 API Key、清理旧字段 */
-export function migrateSettings(saved: unknown, cipher: KeyCipher): Settings {
+// 解不开（比如 settings.json 拷到了别的电脑 / 别的 Windows 账户）就清空，记一条日志让用户知道要重新填
+function decryptOr(encoded: unknown, cipher: KeyCipher, what: string, warn: (msg: string) => void): string {
+  try {
+    return cipher.decrypt(String(encoded));
+  } catch (err) {
+    warn(`${what}解密失败，已清空，需要在设置里重新填写：${(err as Error)?.message ?? err}`);
+    return '';
+  }
+}
+
+/** 磁盘上的设置 → 完整的 Settings：补默认值、解密 API Key 和访问令牌、清理旧字段 */
+export function migrateSettings(saved: unknown, cipher: KeyCipher, warn: (msg: string) => void = () => {}): Settings {
   const raw: Stored = saved && typeof saved === 'object' && !Array.isArray(saved) ? { ...(saved as Stored) } : {};
   const s = { ...clone(DEFAULT_SETTINGS), ...raw } as Settings & Record<string, unknown>;
   for (const key of NESTED) {
@@ -58,14 +68,12 @@ export function migrateSettings(saved: unknown, cipher: KeyCipher): Settings {
     };
   }
   const api = s.api as Settings['api'] & { keyEnc?: string };
-  if (api.keyEnc) {
-    try {
-      api.key = cipher.decrypt(api.keyEnc);
-    } catch {
-      api.key = '';
-    }
-    delete api.keyEnc;
-  }
+  if (api.keyEnc) api.key = decryptOr(api.keyEnc, cipher, 'API Key ', warn);
+  delete api.keyEnc;
+  // 旧版本的令牌是明文 token，下次保存时自动改成加密的 tokenEnc
+  if (s.tokenEnc) s.token = decryptOr(s.tokenEnc, cipher, '访问令牌', warn);
+  delete s.tokenEnc;
+  if (typeof s.token !== 'string') s.token = '';
   if (typeof s.voice.name !== 'string' || OLD_EDGE_VOICE.test(s.voice.name)) s.voice.name = '';
   // 旧版本贴边藏起来时存下的位置在屏幕外，回到默认位置
   if (s.peek) s.position = null;
@@ -73,20 +81,30 @@ export function migrateSettings(saved: unknown, cipher: KeyCipher): Settings {
   return normalize(s);
 }
 
-// API Key 用系统 DPAPI 加密后再落盘
+// API Key 和访问令牌用系统 DPAPI 加密后再落盘（没有 DPAPI 时退回明文）
 export function serializeSettings(s: Settings, cipher: KeyCipher): Stored {
   const { key, ...api } = s.api;
+  const { token, ...rest } = s;
   const out: Record<string, unknown> = { ...api };
-  if (key && cipher.available()) out.keyEnc = cipher.encrypt(key);
-  else if (key) out.key = key;
-  return { ...s, api: out };
+  const top: Record<string, unknown> = { ...rest };
+  if (cipher.available()) {
+    if (key) out.keyEnc = cipher.encrypt(key);
+    if (token) top.tokenEnc = cipher.encrypt(token);
+  } else {
+    if (key) out.key = key;
+    if (token) top.token = token;
+  }
+  return { ...top, api: out };
 }
 
-export function createSettingsStore(file: string, cipher: KeyCipher) {
-  let settings = migrateSettings(readJson(file, {}), cipher);
+export function createSettingsStore(file: string, cipher: KeyCipher, warn: (msg: string) => void = () => {}) {
+  const raw = readJson<Stored>(file, {});
+  let settings = migrateSettings(raw, cipher, warn);
 
   const save = () => writeJson(file, serializeSettings(settings, cipher));
   const view = (): SettingsView => ({ ...settings, officialServerUrl: OFFICIAL_SERVER_URL });
+  // 旧版本明文存的令牌 / Key：读进来就加密重写一遍
+  if (cipher.available() && (raw?.token || raw?.api?.key)) save();
 
   return {
     get: () => settings,

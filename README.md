@@ -167,7 +167,7 @@ npm run dist       # 构建 + 打包成 exe，输出在 client/dist（便携版 
   可在设置里选服务器上的模型（`GET /models`，自动排除 bge-m3 等嵌入模型）和自定义人设。
 - **自己的 API Key**：客户端直连 OpenAI 兼容接口，不经过服务器。预设 DeepSeek 官方
   （`deepseek-chat` / `deepseek-reasoner`），或选「自定义」填接口地址 + 模型名（OpenAI、硅基流动、通义等）。
-  Key 用系统 DPAPI 加密保存在 `%APPDATA%\deepseek-deskmate\settings.json`。
+  Key 和访问令牌都用系统 DPAPI 加密保存在 `%APPDATA%\deepseek-deskmate\settings.json`（旧版本明文存的令牌启动时自动改成加密的）。
 
 ### 小功能
 
