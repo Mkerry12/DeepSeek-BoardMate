@@ -229,10 +229,73 @@ def test_chat_streams_filtered_events(client, app, settings):
 
 @respx.mock
 def test_chat_ollama_error_is_reported_in_stream(client):
-    respx.post(f"{OLLAMA}/api/chat").mock(return_value=httpx.Response(500, text="boom"))
+    respx.post(f"{OLLAMA}/api/chat").mock(return_value=httpx.Response(500, text=r"boom C:\Users\x"))
     events = sse_events(client.post("/chat", headers=AUTH, json={"messages": [user_msg()]}).text)
     assert events[-1]["type"] == "error"
     assert "500" in events[-1]["message"]
+    # Ollama 的错误内容（可能有本机路径）不回给客户端
+    assert "boom" not in events[-1]["message"]
+
+
+@respx.mock
+def test_chat_malformed_ollama_line_reports_error(client):
+    body = json.dumps({"message": {"content": "你"}}) + "\n{not json\n"
+    respx.post(f"{OLLAMA}/api/chat").mock(return_value=httpx.Response(200, text=body))
+    events = sse_events(client.post("/chat", headers=AUTH, json={"messages": [user_msg()]}).text)
+    assert events[-1]["type"] == "error"
+    assert "无法解析" in events[-1]["message"]
+
+
+def test_chat_rejects_too_many_messages(client):
+    msgs = [user_msg(f"m{i}") for i in range(101)]
+    assert client.post("/chat", headers=AUTH, json={"messages": msgs}).status_code == 422
+
+
+# ---------- 请求体大小 ----------
+
+
+def test_body_too_large_rejected_before_auth(client):
+    r = client.post("/chat", content=b"x" * (256 * 1024 + 1), headers={"Content-Type": "application/json"})
+    assert r.status_code == 413
+
+
+def test_chunked_body_too_large_rejected(client):
+    def chunks():
+        for _ in range(300):
+            yield b"x" * 1024
+
+    r = client.post("/chat", content=chunks(), headers={"Content-Type": "application/json"})
+    assert r.status_code == 413
+
+
+def test_chunked_small_body_still_works(client):
+    def chunks():
+        yield b'{"messages": '
+        yield b"[]}"
+
+    r = client.post("/chat", headers={**AUTH, "Content-Type": "application/json"}, content=chunks())
+    assert r.status_code == 422
+
+
+# ---------- 示例令牌 ----------
+
+
+def test_example_placeholder_token_rejected():
+    from pydantic import ValidationError
+
+    from deskmate_server.config import EXAMPLE_TOKEN
+
+    with pytest.raises(ValidationError, match="占位值"):
+        make_settings(access_tokens=f"abc, {EXAMPLE_TOKEN}")
+
+
+def test_env_example_uses_rejected_placeholder():
+    from pathlib import Path
+
+    from deskmate_server.config import EXAMPLE_TOKEN
+
+    example = (Path(__file__).resolve().parents[1] / ".env.example").read_text(encoding="utf-8")
+    assert f"ACCESS_TOKENS={EXAMPLE_TOKEN}\n" in example
 
 
 @respx.mock

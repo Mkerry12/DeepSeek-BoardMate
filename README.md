@@ -54,14 +54,15 @@ bash 版用 `--model` 等同名参数，`bash scripts/deploy.sh --help` 查看�
 cd server
 python -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt
-copy .env.example .env      # 修改 ACCESS_TOKENS、OLLAMA_MODEL
+copy .env.example .env      # 必改 ACCESS_TOKENS（示例占位值原样保留会拒绝启动；或清空后用下面的令牌库），按需改 OLLAMA_MODEL
 .\.venv\Scripts\python app.py   # 或 .\.venv\Scripts\python -m deskmate_server，两者等价
 ```
 
 浏览器打开 http://127.0.0.1:8000/health 应看到 `"ollama": true`。
 
 - 代码在 `server/deskmate_server/` 包里，`app.py` 只是兼容入口，原来的启动方式不变。
-- `.env` 启动时会校验（数字项填错、端口越界等会直接报出是哪一项）。
+- `.env` 启动时会校验（数字项填错、端口越界等会直接报出是哪一项；`ACCESS_TOKENS` 还是示例占位值时拒绝启动）。
+- 请求体超过 256 KB 直接返回 413（在鉴权之前），一次最多 100 条消息。
 - 控制台每个请求一行日志：`request_id`、路径、状态码、耗时（ms）、令牌**标签**（如 `token-1`，从不打印令牌本身）；
   `.env` 里 `LOG_FORMAT=json` 可改成 JSON 行。响应头带 `X-Request-ID`，排查问题时让朋友报这个 id 即可。
 - 拉新代码后先 `.\.venv\Scripts\pip install -r requirements.txt` 再重启（依赖版本已锁定，见 CONTRIBUTING）。
@@ -98,7 +99,7 @@ cd server
 不想在本机装 Python 时可以用 Docker（需要 Docker Desktop）。在**仓库根目录**运行，配置仍然读 `server/.env`：
 
 ```powershell
-copy server\.env.example server\.env   # 已有 .env 就跳过
+copy server\.env.example server\.env   # 已有 .env 就跳过；ACCESS_TOKENS 的占位值必须改掉或清空
 docker compose up -d --build           # 构建并后台启动，监听 127.0.0.1:8000
 docker compose logs -f server          # 看日志
 docker compose exec server python -m deskmate_server.tokens list   # 令牌命令照常用，在容器里执行

@@ -140,6 +140,13 @@ try {
     $m = [IO.File]::ReadAllText($manifestPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
     Ok "清单：$($m.name)（GPT-SoVITS $($m.gsv_version)）"
 
+    # 清单里的文件名只取文件名部分，不许带 .. 之类跳出目标目录
+    foreach ($a in @($m.gpt_weights, $m.sovits_weights, $m.ref_audio)) {
+        $raw = "$($a.file)"
+        $base = [IO.Path]::GetFileName($raw.Replace('/', '\'))
+        if (-not $base -or $base -eq '.' -or $base -eq '..' -or $raw.Contains('..')) { Fail "清单里的文件名不合法：$raw" }
+        $a.file = $base
+    }
     $items = @(
         @{ Asset = $m.gpt_weights; Dest = (Join-Path $gptDir $m.gpt_weights.file) },
         @{ Asset = $m.sovits_weights; Dest = (Join-Path $sovitsDir $m.sovits_weights.file) },
@@ -211,7 +218,7 @@ $cfg = Join-Path $GsvDir 'GPT_SoVITS\configs\tts_infer.yaml'
 Write-Host '    想让 GPT-SoVITS 启动就加载这套权重：把 GPT_SoVITS/configs/tts_infer.yaml 里 custom 段改成'
 Write-Host "      t2s_weights_path: GPT_weights_v2/$($m.gpt_weights.file)"
 Write-Host "      vits_weights_path: SoVITS_weights_v2/$($m.sovits_weights.file)"
-Write-Host '      version: v2'
+Write-Host "      version: $($m.gsv_version)"
 Write-Host '    （或者启动后照上面在线切换：/set_gpt_weights 和 /set_sovits_weights 的 weights_path 参数）'
 if (Test-Path -LiteralPath $cfg) {
     $doPatch = if ($PatchConfig) { $true } else { Confirm '现在帮你改 tts_infer.yaml 吗？（会先备份）' $false }
@@ -239,6 +246,6 @@ if (Test-Path -LiteralPath $cfg) {
 # ---------------------------------------------------------------- 6. 收尾
 Step '完成'
 Write-Host '    DeskMate 后端只在启动时读 voices.json：重启后端才会用上新音色'
-Write-Host '      （本机：关掉后端窗口再 cd server; .\.venv\Scripts\python.exe app.py，或重新运行 scripts\deploy.ps1；Docker：docker compose restart server）'
+Write-Host '      （本机：关掉后端窗口再 cd server; .\.venv\Scripts\python.exe app.py，或重新运行 scripts\deploy.ps1；Docker：docker compose cp server/data/voices.json server:/app/data/voices.json; docker compose restart server，或重新运行 deploy.ps1 -Docker）'
 Write-Host '    音色仅限受邀协作者个人使用，禁止二次分发；对外发布合成内容请标注 AI 合成'
 exit 0

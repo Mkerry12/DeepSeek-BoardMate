@@ -9,7 +9,7 @@ class Message(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    messages: list[Message] = Field(min_length=1)
+    messages: list[Message] = Field(min_length=1, max_length=100)
     model: str | None = Field(default=None, max_length=200)
     persona: str | None = Field(default=None, max_length=20000)
     memory: str | None = Field(default=None, max_length=4000)

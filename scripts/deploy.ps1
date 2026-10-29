@@ -177,13 +177,13 @@ Step '准备 server/.env'
 $newEnv = $false
 if (-not (Test-Path $EnvFile)) {
     Copy-Item (Join-Path $Server '.env.example') $EnvFile
-    # 示例里的 change-me-123 不能留；令牌改用令牌库（下面生成）
+    # 示例里的占位令牌不能留（留着后端拒绝启动）；令牌改用令牌库（下面生成）
     Set-EnvValue 'ACCESS_TOKENS' ''
     $newEnv = $true
     Ok '已从 .env.example 创建 server/.env'
 } else {
     Ok 'server/.env 已存在，保留原有配置'
-    if ((Get-EnvValue 'ACCESS_TOKENS') -match 'change-me') { Warn 'ACCESS_TOKENS 还是示例值 change-me-123，建议清空并用令牌库' }
+    if ((Get-EnvValue 'ACCESS_TOKENS') -match 'change-me|REPLACE-ME') { Warn 'ACCESS_TOKENS 里还有 .env.example 的示例值（公开的，谁都知道），建议清空并用令牌库' }
 }
 if ($Model) { Set-EnvValue 'OLLAMA_MODEL' $Model }
 $Model = Get-EnvValue 'OLLAMA_MODEL'
@@ -229,7 +229,7 @@ if ($setupGsv) {
         if ($GsvDir) { $fetchArgs.GsvDir = $GsvDir }
         if ($Yes) { $fetchArgs.Yes = $true }
         & (Join-Path $PSScriptRoot 'fetch-voice.ps1') @fetchArgs
-        if ($LASTEXITCODE -eq 0) { $hasVoice = $true; $fetched = $true; Ok '满穗音色已就绪（后端稍后启动时会读到 voices.json）' }
+        if ($LASTEXITCODE -eq 0) { $hasVoice = $true; $fetched = $true; Ok "满穗音色已就绪（后端稍后启动时会读到 voices.json$(if ($Docker) { '，Docker 模式会复制进容器' })）" }
         else { Warn '下载满穗音色没成功（见上面的提示），继续部署；以后可以单独运行 scripts\fetch-voice.ps1' }
     }
     if (-not $GsvRefAudio -and -not $fetched) { $GsvRefAudio = Ask '参考音频路径（GPT-SoVITS 那台机器上的 3~10 秒 wav；已有 server/data/voices.json 可留空）' (Get-EnvValue 'GSV_REF_AUDIO') }
@@ -287,6 +287,17 @@ if ($Docker) {
     try {
         docker compose up -d --build
         if ($LASTEXITCODE -ne 0) { Fail 'docker compose up 失败' }
+        if (Test-Path -LiteralPath $voicesFile) {
+            # 容器读的是数据卷里的 /app/data/voices.json，不是宿主机的 server/data/voices.json，要复制进去再重启。
+            # 里面的 ref_audio_path 是宿主机路径，由宿主机上的 GPT-SoVITS 读取，不用改（参考音频留在原处别删）
+            docker compose cp 'server/data/voices.json' 'server:/app/data/voices.json'
+            if ($LASTEXITCODE -eq 0) {
+                docker compose restart server | Out-Null
+                Ok '已把 server/data/voices.json 复制进容器（/app/data）并重启后端'
+            } else {
+                Warn '复制 voices.json 进容器失败，手动运行：docker compose cp server/data/voices.json server:/app/data/voices.json; docker compose restart server'
+            }
+        }
         if ($newEnv) {
             if (Wait-Health $healthUrl 60) {
                 Step '生成访问令牌'
@@ -297,9 +308,17 @@ if ($Docker) {
     } finally { Pop-Location }
 } elseif (-not $NoStart) {
     Step '启动后端'
-    $running = Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
-        Where-Object { $_.CommandLine -match 'app\.py|deskmate_server' -and $_.CommandLine -notmatch 'deskmate_server\.tokens' }
-    if ($running) {
+    # 只认本仓库 server\.venv 的 python 跑的 app.py / -m deskmate_server，别误杀其他项目的 app.py
+    $venvPy = [IO.Path]::GetFullPath((Join-Path $Server '.venv\Scripts\python.exe'))
+    $procs = @(Get-CimInstance Win32_Process -Filter "Name like 'python%'")
+    $launchers = @($procs | Where-Object {
+            $_.ExecutablePath -and ([IO.Path]::GetFullPath($_.ExecutablePath) -ieq $venvPy) -and
+            $_.CommandLine -match '(^|[\s\\/"])app\.py("|\s|$)|\s-m\s+deskmate_server("|\s|$)'
+        })
+    # Windows 的 venv python.exe 只是启动器，真正跑后端的是它的子进程（基础解释器）
+    $launcherIds = @($launchers | ForEach-Object { $_.ProcessId })
+    $running = @($launchers) + @($procs | Where-Object { $launcherIds -contains $_.ParentProcessId })
+    if ($running.Count -gt 0) {
         Warn '后端已经在运行，先停掉旧进程再用新配置启动'
         $running | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
         Start-Sleep -Seconds 1

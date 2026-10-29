@@ -212,6 +212,7 @@ GSV_TEXT_LANG=zh
 
    脚本会问要不要帮你改（加 `-PatchConfig` / `--patch-config` 直接改，改之前备份成 `tts_infer.yaml.bak-时间`）。然后按第 2 步启动 api_v2。
 6. **重启 DeskMate 后端**：后端只在启动时读 `voices.json`，重启后 `/health` 里应看到 `"tts": "满穗", "gsv": true`。
+   用 Docker 跑后端时要先把 `voices.json` 复制进容器，见下面的 [Docker](#docker)。
 
 注意：
 
@@ -241,10 +242,14 @@ GPT-SoVITS 要用显卡，**放在宿主机上跑**，不放进容器（也没�
 设成 `http://host.docker.internal:9880`（可用环境变量 `DESKMATE_GSV_URL` 覆盖）。音色二选一：
 
 - `.env` 里的 `GSV_REF_AUDIO` 等单音色配置，直接生效；
-- 多音色：取消 `compose.yaml` 里 `./server/data/voices.json` 那行挂载的注释，或者
+- 多音色 / 满穗音色（`server/data/voices.json`）：容器读的是数据卷里的 `/app/data/voices.json`，**不会**自动看到宿主机上的文件。
+  `deploy.ps1 -Docker`（`deploy.sh --docker`）启动容器后会自动把它复制进去并重启后端；
+  单独运行 `fetch-voice` 或手动改了 `voices.json` 后，再运行一次部署脚本，或者手动
   `docker compose cp server/data/voices.json server:/app/data/voices.json` 后 `docker compose restart server`。
+  也可以取消 `compose.yaml` 里 `./server/data/voices.json` 那行挂载的注释（改成只读挂载后就不要再 `cp` 了）。
 
-`ref_audio_path` 写**宿主机**上的路径（由宿主机上的 GPT-SoVITS 读取）。
+`ref_audio_path` 写**宿主机**上的路径，原样复制进容器即可、不用改：后端只把路径转发给宿主机上的 GPT-SoVITS，自己不读这个文件。
+所以参考音频（比如 `server/data/voices/manhui-ref-371.wav`）要留在宿主机原处，不需要复制进容器。
 
 ## 性能参考
 

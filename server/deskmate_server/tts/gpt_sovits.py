@@ -151,7 +151,9 @@ class GPTSoVITSProvider:
         except httpx.HTTPError as e:
             raise TTSUnavailable(f"连接 GPT-SoVITS 失败: {e.__class__.__name__}") from e
         if r.status_code != 200 or not r.content:
-            raise TTSUnavailable(f"GPT-SoVITS 返回 {r.status_code}: {r.text[:200]}")
+            # 错误内容可能带本机路径，只写日志，不回给客户端
+            logger.warning("GPT-SoVITS 返回 %s：%s", r.status_code, r.text[:500])
+            raise TTSUnavailable(f"GPT-SoVITS 返回 {r.status_code}")
         content_type = r.headers.get("content-type", "").split(";")[0].strip()
         media = content_type if content_type.startswith("audio/") else MEDIA_TYPES[self.media_type]
         return Audio(r.content, media, self.name)

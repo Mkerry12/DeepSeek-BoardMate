@@ -8,6 +8,10 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SERVER_DIR = Path(__file__).resolve().parents[1]
+# .env.example 里的占位令牌：照抄就拒绝启动（公开仓库里的值谁都知道）
+EXAMPLE_TOKEN = "REPLACE-ME-with-your-own-random-token"
+# 旧版 .env.example 的示例令牌，同样是公开的；为了不让老部署直接起不来，只警告
+OLD_EXAMPLE_TOKENS = ("change-me-123",)
 
 
 class Settings(BaseSettings):
@@ -65,6 +69,16 @@ class Settings(BaseSettings):
     @classmethod
     def _strip_slash(cls, v: str) -> str:
         return v.rstrip("/")
+
+    @field_validator("access_tokens")
+    @classmethod
+    def _no_example_token(cls, v: str) -> str:
+        if any(t.strip() == EXAMPLE_TOKEN for t in v.split(",")):
+            raise ValueError(
+                "ACCESS_TOKENS 还是 .env.example 里的占位值，请换成自己的长随机串，"
+                "或者清空后改用令牌库（python -m deskmate_server.tokens add <名字>）"
+            )
+        return v
 
     @field_validator("gsv_media_type", mode="before")
     @classmethod

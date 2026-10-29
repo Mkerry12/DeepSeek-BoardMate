@@ -226,10 +226,12 @@ def test_gsv_down_returns_503_without_fallback(gsv_client):
 
 @respx.mock
 def test_gsv_error_status_returns_503(gsv_client):
-    respx.post(f"{GSV}/tts").mock(return_value=httpx.Response(400, json={"message": "bad"}))
+    respx.post(f"{GSV}/tts").mock(return_value=httpx.Response(400, json={"message": r"C:\secret\ref.wav"}))
     r = gsv_client.post("/tts", headers=AUTH, json={"text": "你好", "voice": "zh-CN-XiaoxiaoNeural"})
     assert r.status_code == 503
     assert "GPT-SoVITS 返回 400" in r.json()["detail"]
+    # 错误内容（可能有本机路径）不回给客户端
+    assert "secret" not in r.json()["detail"]
 
 
 def test_tts_without_presets_returns_503(client):
