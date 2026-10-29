@@ -14,6 +14,7 @@ export const chatFeature: Feature = (ctx) => {
   const { props } = character.live2d;
 
   let abortCtrl: AbortController | null = null;
+  let settleTurn: (() => void) | null = null;
   let eraseArmedAt = 0;
   let whaleTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -74,6 +75,8 @@ export const chatFeature: Feature = (ctx) => {
 
   async function send(text: string) {
     bus.emit('user:active');
+    // 上一条还在流式输出（比如 chat:send 又发来一句）：当场收尾，免得记录里留下连续两条用户消息
+    settleTurn?.();
     abortCtrl?.abort();
     const ctrl = (abortCtrl = new AbortController());
     bus.emit('chat:start', { text });
@@ -89,6 +92,16 @@ export const chatFeature: Feature = (ctx) => {
     bubble.sayTyping();
 
     let reply = '';
+    let settled = false;
+    // 这一轮写进记录：有回复就存下，没有就撤掉刚才那条用户消息；只做一次
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      if (settleTurn === settle) settleTurn = null;
+      if (reply) log.push({ role: 'assistant', content: reply });
+      else log.pop();
+    };
+    settleTurn = settle;
     try {
       for await (const ev of streamChat(store.settings, context(), ctrl.signal, memory.text)) {
         if (ev.type === 'thinking') {
@@ -112,26 +125,24 @@ export const chatFeature: Feature = (ctx) => {
           throw new Error(ev.message);
         }
       }
-      if (reply) {
-        log.push({ role: 'assistant', content: reply });
-      } else {
-        log.pop();
-        pet.react('soulout');
-      }
+      // 已经被新的一句顶掉（上面已收尾）
+      if (abortCtrl !== ctrl) return;
+      settle();
+      if (!reply) pet.react('soulout');
       bus.emit('chat:end', { reply });
       flashProp('eraser');
       say(reply || `（${character.name}没想好说什么…）`, Math.max(6000, reply.length * 180));
     } catch (err) {
       if (ctrl.signal.aborted) {
         if (abortCtrl !== ctrl) return;
-        if (reply) log.push({ role: 'assistant', content: reply });
-        else log.pop();
+        settle();
         bus.emit('chat:aborted', { reply });
         say(reply || '好吧，那我先不说啦～', reply ? Math.max(4000, reply.length * 120) : 3000);
         return;
       }
       const error = err as ChatError;
-      log.pop();
+      reply = '';
+      settle();
       pet.react('soulout');
       bus.emit('chat:error', { error });
       if (error.status === 401) reportAuthError(error);

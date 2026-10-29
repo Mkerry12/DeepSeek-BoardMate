@@ -23,7 +23,8 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     app.setAppUserModelId('com.deepseek.deskmate');
     nativeTheme.themeSource = 'light';
-    const settings = createSettingsStore(userFile('settings.json'), dpapi);
+    const settingsLog = createFileLogger(logFile(), 'settings');
+    const settings = createSettingsStore(userFile('settings.json'), dpapi, (msg) => settingsLog.warn(msg));
     const updater = createUpdater({
       autoEnabled: () => settings.get().autoUpdate,
       onStatus: (status) => sendToRenderer('update:changed', status),

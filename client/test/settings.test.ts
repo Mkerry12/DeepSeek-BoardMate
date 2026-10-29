@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createSettingsStore,
   DEFAULT_SETTINGS,
@@ -84,30 +84,47 @@ describe('migrateSettings', () => {
     expect(migrateSettings({ peek: false, position: { x: 1, y: 2 } }, cipher).position).toEqual({ x: 1, y: 2 });
   });
 
-  it('drops an API key that can no longer be decrypted', () => {
-    const s = migrateSettings({ api: { keyEnc: 'garbage' } }, cipher);
+  it('drops an API key that can no longer be decrypted, with a warning', () => {
+    const warn = vi.fn();
+    const s = migrateSettings({ api: { keyEnc: 'garbage' } }, cipher, warn);
     expect(s.api.key).toBe('');
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0][0]).toContain('API Key');
+  });
+
+  it('decrypts tokenEnc and warns when the token cannot be decrypted', () => {
+    const s = migrateSettings({ tokenEnc: cipher.encrypt('tok-1') }, cipher);
+    expect(s.token).toBe('tok-1');
+    expect('tokenEnc' in s).toBe(false);
+    const warn = vi.fn();
+    expect(migrateSettings({ tokenEnc: 'garbage' }, cipher, warn).token).toBe('');
+    expect(warn.mock.calls[0][0]).toContain('访问令牌');
   });
 });
 
 describe('serializeSettings', () => {
-  it('encrypts the API key when encryption is available', () => {
-    const s = migrateSettings({ api: { key: 'sk-1' } }, cipher);
+  it('encrypts the API key and access token when encryption is available', () => {
+    const s = migrateSettings({ api: { key: 'sk-1' }, token: 'tok' }, cipher);
     const out = serializeSettings(s, cipher);
     expect(out.api).not.toHaveProperty('key');
     expect(cipher.decrypt((out.api as { keyEnc: string }).keyEnc)).toBe('sk-1');
+    expect(out).not.toHaveProperty('token');
+    expect(cipher.decrypt(out.tokenEnc as string)).toBe('tok');
   });
 
   it('falls back to plain text without encryption and omits empty keys', () => {
-    const plain = serializeSettings(migrateSettings({ api: { key: 'sk-1' } }, cipher), noCipher);
+    const plain = serializeSettings(migrateSettings({ api: { key: 'sk-1' }, token: 'tok' }, cipher), noCipher);
     expect(plain.api).toMatchObject({ key: 'sk-1' });
+    expect(plain.token).toBe('tok');
     const empty = serializeSettings(migrateSettings({}, cipher), cipher);
     expect(empty.api).not.toHaveProperty('key');
     expect(empty.api).not.toHaveProperty('keyEnc');
+    expect(empty).not.toHaveProperty('token');
+    expect(empty).not.toHaveProperty('tokenEnc');
   });
 
   it('round-trips through migrateSettings', () => {
-    const s = migrateSettings({ api: { key: 'sk-1' }, persona: '猫娘' }, cipher);
+    const s = migrateSettings({ api: { key: 'sk-1' }, token: 'tok', persona: '猫娘' }, cipher);
     expect(migrateSettings(JSON.parse(JSON.stringify(serializeSettings(s, cipher))), cipher)).toEqual(s);
   });
 });
@@ -133,5 +150,17 @@ describe('createSettingsStore', () => {
     expect(disk.officialServerUrl).toBeUndefined();
     expect(disk.api.key).toBeUndefined();
     expect(createSettingsStore(file, cipher).get().api.key).toBe('sk-9');
+  });
+
+  it('re-encrypts a plaintext token from an old settings file on load', () => {
+    const file = path.join(dir, 'settings.json');
+    fs.writeFileSync(file, JSON.stringify({ token: 'old-plain', api: { key: 'sk-old' } }));
+    const store = createSettingsStore(file, cipher);
+    expect(store.get().token).toBe('old-plain');
+    const disk = JSON.parse(fs.readFileSync(file, 'utf8'));
+    expect(disk.token).toBeUndefined();
+    expect(disk.api.key).toBeUndefined();
+    expect(cipher.decrypt(disk.tokenEnc)).toBe('old-plain');
+    expect(createSettingsStore(file, cipher).get().token).toBe('old-plain');
   });
 });

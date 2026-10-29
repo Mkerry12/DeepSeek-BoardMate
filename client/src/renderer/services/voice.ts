@@ -158,15 +158,17 @@ export function createVoice({ getSettings, sounds }: { getSettings: () => Settin
       const { data } = queue.shift()!;
       const bytes = await data;
       if (mine !== gen) return;
-      if (bytes) await play(bytes);
+      if (bytes) await play(bytes, mine);
     }
     if (mine === gen) pumping = false;
   }
 
-  async function play(bytes: ArrayBuffer): Promise<boolean> {
+  async function play(bytes: ArrayBuffer, mine: number): Promise<boolean> {
     try {
       const c = audio();
       const buffer = await c.decodeAudioData(bytes);
+      // 解码期间被 stop() 了：这句不再播
+      if (mine !== gen) return false;
       await new Promise<void>((resolve) => {
         const src = c.createBufferSource();
         src.buffer = buffer;

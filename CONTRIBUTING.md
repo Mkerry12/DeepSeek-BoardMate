@@ -170,7 +170,7 @@ client/                       Electron 客户端（TypeScript + electron-vite）
   src/main/                   主进程
     index.ts                  入口：单实例、组装各模块
     window.ts  tray.ts        透明置顶窗口、托盘
-    settings.ts               设置默认值、旧版迁移、OFFICIAL_SERVER_URL、API Key 的 DPAPI 加密
+    settings.ts               设置默认值、旧版迁移、OFFICIAL_SERVER_URL、API Key / 访问令牌的 DPAPI 加密
     history.ts                聊天记录 / 长期记忆读写
     ipc.ts                    按契约实现所有 IPC 处理函数（漏实现一个通道会编译失败）
     drag.ts  system.ts        拖动窗口；剪贴板、系统通知

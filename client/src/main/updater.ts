@@ -8,6 +8,7 @@ import {
   compareVersions,
   installKind,
   RELEASES_PAGE,
+  releasePageUrl,
   versionFromReleaseUrl,
   type UpdateStatus,
 } from '../shared/update';
@@ -150,7 +151,7 @@ export function createUpdater({ autoEnabled, onStatus, log }: UpdaterDeps) {
   }
 
   function openPage(): void {
-    void shell.openExternal(status.url ?? RELEASES_PAGE);
+    void shell.openExternal(releasePageUrl(status.url));
   }
 
   return { status: () => status, check, start, install, openPage };
