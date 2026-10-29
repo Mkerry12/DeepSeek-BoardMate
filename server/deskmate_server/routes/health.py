@@ -14,6 +14,7 @@ async def health(request: Request):
         "model": state.settings.ollama_model,
         "auth": state.auth.enabled,
         "tts": state.settings.tts_voice,
+        **await state.tts.health(),
     }
 
 

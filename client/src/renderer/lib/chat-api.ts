@@ -172,7 +172,36 @@ export async function summarizeMemory(
   return cut.includes('\n') ? cut.slice(0, cut.lastIndexOf('\n')).trimEnd() : cut;
 }
 
-// 朗读：官方模式走服务器 /tts（朋友也能用），否则或服务器不支持时由主进程直连微软 Edge 语音
+export interface ServerVoices {
+  provider: string;
+  default: string;
+  voices: { id: string; label: string }[];
+}
+
+// 服务器当前语音提供方的音色（Edge 或 GPT-SoVITS 预设）；旧服务器没有这个接口时返回 null
+export async function fetchVoices(
+  settings: Pick<ConnSettings, 'serverUrl' | 'officialServerUrl' | 'token'>,
+): Promise<ServerVoices | null> {
+  try {
+    const res = await request(`${serverBase(settings)}/tts/voices`, { headers: bearer(settings.token) });
+    const body = (await res.json()) as Partial<ServerVoices>;
+    if (!Array.isArray(body.voices)) return null;
+    return { provider: body.provider || '', default: body.default || '', voices: body.voices };
+  } catch {
+    return null;
+  }
+}
+
+const EDGE_VOICE_RE = /^[a-z]{2,3}-[A-Z]{2}(-[a-z]+)?-[A-Za-z]+Neural$/;
+export const DEFAULT_EDGE_VOICE = 'zh-CN-XiaoyiNeural';
+
+/** 客户端直连 Edge 时只能用 Edge 音色；选的是服务器的 GPT-SoVITS 音色时换成默认音色 */
+export function edgeVoice(voice: string): string {
+  return EDGE_VOICE_RE.test(voice) ? voice : DEFAULT_EDGE_VOICE;
+}
+
+// 朗读：官方模式走服务器 /tts（朋友也能用），否则或服务器不支持时由主进程直连微软 Edge 语音。
+// 服务器返回的音频格式随提供方不同（Edge 是 mp3，GPT-SoVITS 是 wav / ogg），播放端 decodeAudioData 都能解
 export async function synthSpeech(
   settings: ConnSettings,
   text: string,
@@ -193,7 +222,7 @@ export async function synthSpeech(
       if (signal?.aborted || status === 401 || status === 429) throw err;
     }
   }
-  const bytes = await window.desk.tts(text, voice);
+  const bytes = await window.desk.tts(text, edgeVoice(voice));
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
@@ -203,13 +232,21 @@ export async function checkConnection(
 ): Promise<{ chips: StatusChip[]; models?: ServerModels | null }> {
   if (settings.mode === 'apikey') return checkApi(settings);
   const base = serverBase(settings);
-  const health = (await fetch(`${base}/health`).then((r) => r.json())) as { ollama?: boolean; model?: string };
+  const health = (await fetch(`${base}/health`).then((r) => r.json())) as {
+    ollama?: boolean;
+    model?: string;
+    tts_provider?: string;
+    gsv?: boolean | null;
+  };
   const auth = await fetch(`${base}/auth-check`, { headers: bearer(settings.token) });
   const chips = [
     { text: '服务器', ok: true },
     { text: health.ollama ? `Ollama · ${health.model}` : 'Ollama 未运行', ok: !!health.ollama },
     { text: auth.ok ? '令牌有效' : '令牌无效', ok: auth.ok },
   ];
+  if (health.tts_provider === 'gpt_sovits') {
+    chips.push({ text: health.gsv ? 'GPT-SoVITS 语音' : 'GPT-SoVITS 未运行', ok: !!health.gsv });
+  }
   return { chips, models: auth.ok && health.ollama ? await fetchModels(settings).catch(() => null) : null };
 }
 

@@ -14,7 +14,37 @@
 ```
 
 - `client/`：Electron + pixi.js + Live2D，透明置顶窗口，动作、表情、口型、对话气泡
-- `server/`：令牌鉴权、限流、人设、过滤 `<think>`、解析情绪标签，SSE 流式返回
+- `server/`：令牌鉴权、限流、人设、过滤 `<think>`、解析情绪标签，SSE 流式返回；朗读支持 Edge 语音和本机 GPT-SoVITS
+
+## 文档
+
+- [产品设计文档](doc/产品设计文档.md)：定位、用户、场景、各模块功能、交互细节、非功能需求、许可与路线图
+- [架构文档](doc/架构文档.md)：系统上下文、部署方式、客户端 / 服务器架构、数据存储、API 参考、安全模型、CI/CD、测试、扩展指南
+- [用 GPT-SoVITS 自定义音色](doc/gpt-sovits.md)：安装、参考音频、音色配置、Docker、常见问题、合规
+- [参与开发](CONTRIBUTING.md)
+
+## 0. 一键部署（拉取代码后推荐）
+
+脚本会检查 Python 3.10+ / Node 20+ / Ollama，拉取模型，建好 `server/.venv`，从 `.env.example` 生成 `server/.env`
+并创建第一个访问令牌（**只显示一次**），可选配置 GPT-SoVITS，下载 Cubism Core，构建客户端并启动。可以重复运行，已有的 `.env` 会保留。
+
+```powershell
+# Windows（在仓库根目录）
+powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1                 # 交互式
+powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Yes            # 全部默认（Edge 语音），不提问
+powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Yes -Docker    # 后端用 Docker 运行
+powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Tts gpt_sovits -GsvRefAudio 'D:\refs\voice.wav' -GsvPromptText '参考音频里的原话'
+```
+
+```bash
+# macOS / Linux（默认只部署后端，--client 同时构建客户端）
+bash scripts/deploy.sh             # 交互式
+bash scripts/deploy.sh --yes       # 全部默认
+bash scripts/deploy.sh --yes --docker --tts gpt_sovits --gsv-ref-audio /data/refs/voice.wav --gsv-prompt-text '参考音频里的原话'
+```
+
+其他参数：`-Model`（Ollama 模型）、`-SkipOllama`、`-NoClient`、`-NoStart`、`-StartClient`、`-ServerUrl`（构建进客户端的默认服务器地址，默认本机后端），
+bash 版用 `--model` 等同名参数，`bash scripts/deploy.sh --help` 查看。下面是手动部署的步骤。
 
 ## 1. 启动后端（在你自己的电脑上）
 
@@ -73,6 +103,7 @@ docker compose exec server python -m deskmate_server.tokens list   # 令牌命�
 docker compose down                    # 停止（令牌库在数据卷 deskmate-data 里，不会丢）
 ```
 
+- GPT-SoVITS 同样跑在宿主机上（要用显卡），容器经 `http://host.docker.internal:9880` 访问（`DESKMATE_GSV_URL` 可覆盖），见 [doc/gpt-sovits.md](doc/gpt-sovits.md#docker)。
 - 默认连接**宿主机**上的 Ollama（`http://host.docker.internal:11434`）。Linux 上 Ollama 默认只听 `127.0.0.1`，
   需要设置环境变量 `OLLAMA_HOST=0.0.0.0` 后重启 Ollama，容器才能连上。
 - 想把 Ollama 也放进容器：`$env:DESKMATE_OLLAMA_URL="http://ollama:11434"; docker compose --profile ollama up -d`，
@@ -147,8 +178,11 @@ npm run dist       # 构建 + 打包成 exe，输出在 client/dist（便携版 
   戳脸会脸红；点头顶（或桌上）的小鲸鱼会喷水；3 秒内连戳 5 下先晕晕再抡锤子；拖着窗口左右猛晃她会晕。其他部位单击是随机反应，双击聊天。
 - **边聊边记**：回答时她拿笔在小本本上写；回复超过 150 字会把小鲸鱼放到桌上，说完放回头顶；回答失败或没话说会吐魂。
 - **今日运势**：右键「今日运势」，掏出手机翻开看一眼，同一天结果固定。
-- **语音朗读**（默认关）：右键「语音朗读」或设置里「朗读回复」开关，可选音色。用微软 Edge 神经网络语音：
-  官方模式走服务器 `POST /tts`，API Key 模式（或服务器不可用时）由客户端主进程直连；都失败才退回 Windows 自带语音。
+- **语音朗读**（默认关）：右键「语音朗读」或设置里「朗读回复」开关，可选音色。
+  官方模式走服务器 `POST /tts`：服务器默认用微软 Edge 神经网络语音，也可以换成主人电脑上的 **GPT-SoVITS 自定义音色**
+  （`TTS_PROVIDER=gpt_sovits`，不可用时自动退回 Edge；设置里的音色列表会显示服务器上的音色，见 [doc/gpt-sovits.md](doc/gpt-sovits.md)）。
+  API Key 模式（或服务器不可用时）由客户端主进程直连 Edge 语音；都失败才退回 Windows 自带语音。
+  试听 GPT-SoVITS 效果（示例为 AI 合成语音）：[满穗-说话-定版示例.mp3](doc/audio/满穗-说话-定版示例.mp3)、[满穗-新版-new-1.mp3](doc/audio/满穗-新版-new-1.mp3)。
   边输出边一句句地读，口型跟着音量动；按停止 / Esc / 发新消息 / 关掉开关会立刻停。「提示音」开关控制完成、失败、提醒的小音效（来自 `pet.json` 的 sounds）。
   设置里的「音量」滑块（默认 80%）同时管朗读和提示音，拖动时正在读的语音立刻跟着变，松手会响一声试听；调小声口型照样动。
 - **按时段打招呼**：早上 8–10 点、午饭 11:45–13 点、晚饭 17:45–19:30、深夜 23:30–5 点各打一次招呼（每天每个时段一次），聊天时会等一等。
@@ -166,7 +200,8 @@ npm run dist       # 构建 + 打包成 exe，输出在 client/dist（便携版 
 默认人设在 `server/deskmate_server/persona.py` 的 `DEFAULT_PERSONA`（API Key 模式用 `client/src/renderer/lib/persona.ts` 里的同一份，测试会检查两边一致），
 情绪标签规则在 `REPLY_RULES`；用户在设置里填的人设只替换人设部分。改标签只需改 `shared/emotion-tags.json`，客户端和服务器都直接读取它。
 
-服务器的朗读接口需要能访问外网（微软语音服务），相关配置见 `server/.env.example` 里的 `TTS_*`；
+服务器的朗读接口用 Edge 语音时需要能访问外网（微软语音服务），用 GPT-SoVITS 时需要本机跑着 GPT-SoVITS api_v2，
+相关配置见 `server/.env.example` 里的 `TTS_*` 和 `GSV_*`；
 已有的 `server/.venv` 每次拉取新代码后记得重新 `pip install -r requirements.txt`（依赖版本已锁定）。
 
 ## 参与开发
@@ -186,3 +221,4 @@ cd server; .\.venv\Scripts\ruff check .; .\.venv\Scripts\python -m pytest   # �
 - Live2D 模型「DS鲸鱼娘」（`client/assets/live2d/ds-whale-girl/`）**不适用 MIT**，仍为 **CC BY-NC-SA 4.0**（署名、非商用、相同方式共享），版权归 上善无形 / ZipZipPipe / 氵六青，详见该目录下的 LICENSE 与 README。
   因此包含该模型的打包程序（exe）整体不能用于商业用途。
 - Live2D Cubism Core 为 Live2D Inc. 专有软件，不随本仓库分发，请按上文自行下载到 `client/vendor/`。
+- 使用 GPT-SoVITS 时只对有权使用的声音做合成，对外分发建议标注为 AI 合成。

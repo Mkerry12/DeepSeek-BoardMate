@@ -20,6 +20,10 @@ services:
       DB_PATH: /app/data/deskmate.db
       # 宿主机上的 Ollama；用 ollama profile 时改成 http://ollama:11434
       OLLAMA_URL: ${DESKMATE_OLLAMA_URL:-http://host.docker.internal:11434}
+      # GPT-SoVITS 跑在宿主机上（要用显卡），容器经 host.docker.internal 访问；只在 .env 里 TTS_PROVIDER=gpt_sovits 时用到。
+      # Linux 上 GPT-SoVITS 要监听 0.0.0.0（api_v2.py -a 0.0.0.0）容器才连得上，见 doc/gpt-sovits.md
+      # 音色里的 ref_audio_path 是宿主机上的路径（由 GPT-SoVITS 读取），原样写就行
+      GSV_URL: ${DESKMATE_GSV_URL:-http://host.docker.internal:9880}
     ports:
       # 只绑定本机回环地址，由内网穿透（cpolar / 花生壳）转发到公网
       - "127.0.0.1:${DESKMATE_PORT:-8000}:8000"
@@ -28,6 +32,9 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - deskmate-data:/app/data
+      # 多个 GPT-SoVITS 音色：建好 server/data/voices.json 后取消下面这行注释（或者 docker compose cp 进 /app/data/）。
+      # 只用一个音色时不需要，直接在 .env 里填 GSV_REF_AUDIO 等即可
+      # - ./server/data/voices.json:/app/data/voices.json:ro
 
   # 可选：容器里的 Ollama。拉模型：docker compose exec ollama ollama pull deepseek-r1:8b
   ollama:

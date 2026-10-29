@@ -45,6 +45,9 @@ npm run dist      # build + electron-builder，输出 dist/ 下的便携版和�
 
 ### 后端（`server/`）
 
+想省事可以直接跑一键部署脚本 `scripts\deploy.ps1`（macOS / Linux：`scripts/deploy.sh`），它会建 venv、生成 `.env` 和令牌；
+开发还需要额外装 `requirements-dev.txt`。手动步骤：
+
 ```powershell
 cd server
 python -m venv .venv
@@ -95,7 +98,11 @@ cd server
 - 客户端测试在 `client/test/`，覆盖纯逻辑模块（流式过滤、人设拼接、SSE 解析、记忆、触摸、运势、问候时段）、
   事件总线、设置迁移、角色配置校验、IPC 契约，以及情绪标签与服务器的一致性。
   涉及 DOM / Electron 的模块尽量把纯逻辑拆成导出的函数再测。
-- 后端测试在 `server/tests/`，用 FastAPI `TestClient` + `respx` 模拟 Ollama、用假的 `edge_tts` 代替联网，**不依赖本机 `.env`**。
+- 后端测试在 `server/tests/`，用 FastAPI `TestClient` + `respx` 模拟 Ollama 和 GPT-SoVITS、用假的 `edge_tts` 代替联网，
+  **不依赖本机 `.env` 和 `server/data/`**（`make_settings()` 把令牌库、音色文件都放进临时目录）。
+- 改了 `scripts/` 里的部署脚本，至少做一次语法检查：PowerShell 用
+  `[System.Management.Automation.Language.Parser]::ParseFile(...)`，bash 用 `bash -n scripts/deploy.sh`。
+  `deploy.ps1` 要保存成 **UTF-8 带 BOM**（否则 Windows PowerShell 5.1 会把中文读乱）。
 - 代码风格：TS 单引号、分号、2 空格、行宽 120（`.prettierrc`）；Python 行宽 110（`server/pyproject.toml`）。编辑器请启用 EditorConfig。
 - TypeScript 开 `strict`；`any` 只用在第三方库边界（Live2D 引擎的模型对象等），并用 `eslint-disable` 注明。
 
@@ -133,6 +140,8 @@ pre-commit install
 ## 5. 项目结构
 
 ```
+doc/                          产品设计文档、架构文档、GPT-SoVITS 配置说明（audio/ 是语音效果示例）
+scripts/deploy.ps1 / .sh      一键部署（Windows / macOS、Linux）
 shared/emotion-tags.json      情绪标签唯一来源（客户端直接导入，服务器启动时读取）
 client/                       Electron 客户端（TypeScript + electron-vite）
   electron.vite.config.ts     main / preload / renderer 三份 Vite 构建
@@ -175,7 +184,10 @@ server/
     stream_filter.py          流式过滤：去 <think>、解析情绪标签
     logging_setup.py          访问日志中间件：request id、路径、状态码、耗时、令牌标签（从不记录令牌本身）
     schemas.py                请求体模型与长度限制
-    routes/                   health（/health /auth-check）、models、chat（SSE）、memory、tts、admin（设了 ADMIN_TOKEN 才启用）
+    tts/                      语音合成：TTSService 按 TTS_PROVIDER 选 edge / gpt_sovits，GPT-SoVITS 串行、长句切分、失败退回 Edge；
+                              voices.py 读音色预设（GSV_VOICES_FILE / GSV_REF_AUDIO），text.py 朗读文本清理
+    routes/                   health（/health /auth-check）、models、chat（SSE）、memory、tts（/tts /tts/voices）、admin（设了 ADMIN_TOKEN 才启用）
+  voices.example.json         GPT-SoVITS 音色预设示例（真实的放 server/data/voices.json，已被 git 忽略）
   tests/                      pytest（conftest 用 make_settings() 构造配置，不读本机 .env）
 ```
 
@@ -199,6 +211,9 @@ server/
   字段和校验见 `src/renderer/character/config.ts`；`npm test` 会校验所有角色目录下的配置。
 - **新增后端接口**：在 `server/deskmate_server/routes/` 新建一个 `APIRouter` 模块并加进 `routes/__init__.py` 的 `ROUTERS`；
   参数里写 `_: ChatAuth` 就带上鉴权和限流，请求体放 `schemas.py` 用 Pydantic 限制长度，配置从 `request.app.state.settings` 取；在 `server/tests/` 加测试。
+- **新增语音合成提供方**：在 `server/deskmate_server/tts/` 实现 `base.TTSProvider`（`synthesize` / `voices` / `default_voice`），
+  在 `TTSService.__init__` 按配置创建，`config.py` 的 `tts_provider` 加取值，补 `.env.example` 和 `tests/test_tts.py`。
+  客户端不用改：播放时 `decodeAudioData` 自动识别 mp3 / wav / ogg，音色列表来自 `GET /tts/voices`。
 - **新增配置项**：后端加到 `.env.example`；客户端设置的类型在 `src/shared/types.ts`，默认值和迁移在 `src/main/settings.ts`，
   设置面板在 `index.html` + `features/settings-panel.ts`。
 

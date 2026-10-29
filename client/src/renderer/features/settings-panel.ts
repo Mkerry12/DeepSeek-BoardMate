@@ -1,7 +1,15 @@
 // 设置面板：连接方式（官方服务器 / 自己的 API Key）、模型、人设、语音、提醒；测试连接
 import type { SettingsPatch } from '../../shared/types';
 import { MENU_ORDER, type Feature } from '../core/context';
-import { API_PRESETS, checkConnection, fetchModels, serverBase, type StatusChip } from '../lib/chat-api';
+import {
+  API_PRESETS,
+  checkConnection,
+  edgeVoice,
+  fetchModels,
+  fetchVoices,
+  serverBase,
+  type StatusChip,
+} from '../lib/chat-api';
 import { VOICES } from '../services/voice';
 
 const minutes = (input: HTMLInputElement, fallback: number) =>
@@ -21,7 +29,28 @@ export const settingsPanelFeature: Feature = ({ bus, store, bubble, voice, statu
   status.provide('settingsOpen', () => !form.classList.contains('hidden'));
 
   for (const [id, { label }] of Object.entries(API_PRESETS)) presetSelect.add(new Option(label, id));
-  for (const [id, label] of VOICES) voiceSelect.add(new Option(label, id));
+  // 音色：默认是 Edge 音色表；官方模式下服务器有 /tts/voices 时换成服务器的（比如 GPT-SoVITS 预设）
+  function fillVoiceSelect(voices: [id: string, label: string][], selected: string, fallback: string) {
+    voiceSelect.replaceChildren(...voices.map(([id, label]) => new Option(label, id)));
+    voiceSelect.value = voices.some(([id]) => id === selected) ? selected : fallback;
+  }
+
+  // 本机直连只能用 Edge 音色：服务器的 GPT-SoVITS 音色名换成默认音色，自己填的 Edge 音色照样保留
+  function showEdgeVoices(selected: string) {
+    const voice = edgeVoice(selected);
+    const list: [string, string][] = VOICES.some(([id]) => id === voice) ? VOICES : [...VOICES, [voice, voice]];
+    fillVoiceSelect(list, voice, voice);
+  }
+
+  async function loadServerVoices(selected = voiceSelect.value) {
+    const list = await fetchVoices(formSettings());
+    if (!list?.voices.length || form.mode.value !== 'official') return;
+    fillVoiceSelect(
+      list.voices.map((v) => [v.id, v.label || v.id]),
+      selected,
+      list.default || list.voices[0].id,
+    );
+  }
 
   function syncFormMode() {
     form.dataset.mode = form.mode.value;
@@ -94,16 +123,16 @@ export const settingsPanelFeature: Feature = ({ bus, store, bubble, voice, statu
     form.volume.value = String(settings.voice.volume);
     form.autoUpdate.checked = settings.autoUpdate;
     showVolume();
-    if (![...voiceSelect.options].some((o) => o.value === settings.voice.name)) {
-      voiceSelect.add(new Option(settings.voice.name, settings.voice.name));
-    }
-    voiceSelect.value = settings.voice.name;
+    showEdgeVoices(settings.voice.name);
     fillModelSelect([], '', settings.model);
     for (const btn of form.querySelectorAll<HTMLElement>('.eye-toggle')) setSecretVisible(btn, false);
     setStatus('');
     form.classList.remove('hidden');
     form.querySelector('.panel-body')!.scrollTop = 0;
-    if (settings.mode === 'official' && settings.token) loadServerModels();
+    if (settings.mode === 'official' && settings.token) {
+      loadServerModels();
+      loadServerVoices(settings.voice.name);
+    }
   }
 
   function closeSettings() {
@@ -142,7 +171,11 @@ export const settingsPanelFeature: Feature = ({ bus, store, bubble, voice, statu
   }
 
   form.addEventListener('change', (e) => {
-    if ((e.target as HTMLInputElement).name === 'mode' || e.target === presetSelect) syncFormMode();
+    const isMode = (e.target as HTMLInputElement).name === 'mode';
+    if (isMode || e.target === presetSelect) syncFormMode();
+    if (!isMode) return;
+    showEdgeVoices(voiceSelect.value);
+    if (form.mode.value === 'official' && form.token.value.trim()) loadServerVoices(store.settings.voice.name);
   });
 
   // 音量：拖动时正在播的语音立刻跟着变，松手后没在说话就响一声试听
@@ -178,6 +211,7 @@ export const settingsPanelFeature: Feature = ({ bus, store, bubble, voice, statu
       const { chips, models } = await checkConnection(conn);
       setStatus('', chips.map(chip));
       if (models) fillModelSelect(models.models, models.default, modelSelect.value);
+      if (conn.mode === 'official') loadServerVoices();
     } catch (err) {
       const where = conn.mode === 'apikey' ? '接口' : serverBase(conn);
       setStatus('bad', `无法连接 ${where}：${(err as Error).message}`);

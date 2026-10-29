@@ -1,6 +1,8 @@
 """应用工厂与启动入口。"""
 
 import asyncio
+import contextlib
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,17 +14,31 @@ from .ollama import OllamaClient
 from .ratelimit import RateLimiter
 from .routes import ROUTERS
 from .token_store import TokenStore
+from .tts import TTSService
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    tts: TTSService = app.state.tts
+    logger.info("语音合成：%s", tts.describe())
+    warmup = asyncio.create_task(tts.warmup())
+    try:
+        yield
+    finally:
+        warmup.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await warmup
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
-    app = FastAPI(title="DeepSeek DeskMate Server")
+    app = FastAPI(title="DeepSeek DeskMate Server", lifespan=lifespan)
     app.state.settings = settings
     app.state.auth = TokenAuth(settings.env_tokens, TokenStore(settings.db_path))
     app.state.limiter = RateLimiter()
     app.state.ollama = OllamaClient(settings.ollama_url, settings.ollama_model)
     app.state.chat_semaphore = asyncio.Semaphore(settings.max_concurrency)
-    app.state.tts_semaphore = asyncio.Semaphore(4)
+    app.state.tts = TTSService(settings)
 
     app.add_middleware(
         CORSMiddleware,

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from deskmate_server import persona
 from deskmate_server.main import create_app
-from deskmate_server.routes import tts as tts_route
+from deskmate_server.tts import edge as tts_route
 from tests.conftest import AUTH, make_settings
 
 # good-token 是 ACCESS_TOKENS 里的第一个，限流按令牌 id 分桶
