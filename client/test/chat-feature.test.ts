@@ -3,14 +3,17 @@ import { createBus } from '../src/renderer/core/bus';
 import type { AppContext } from '../src/renderer/core/context';
 import { chatFeature } from '../src/renderer/features/chat';
 import { streamChat } from '../src/renderer/lib/chat-api';
+import type { VoiceTrack } from '../src/renderer/services/voice';
 import type { ChatEvent, ChatMessage } from '../src/shared/types';
 
 vi.mock('../src/renderer/lib/chat-api', () => ({ streamChat: vi.fn() }));
 
 const el = () => ({ classList: { add() {}, remove() {}, toggle() {}, contains: () => false }, addEventListener() {} });
 
-function setup() {
+function setup({ voiced = false } = {}) {
   const bus = createBus() as AppContext['bus'];
+  const says: [string, number | undefined][] = [];
+  const tracks: VoiceTrack[] = [];
   const saved: ChatMessage[][] = [];
   const store = {
     settings: {},
@@ -33,15 +36,27 @@ function setup() {
       setTalking: noop,
       isLit: () => false,
     },
-    bubble: { say: noop, sayTyping: noop },
-    voice: { stop: noop },
+    bubble: { say: (text: string, hold?: number) => says.push([text, hold]), sayTyping: noop },
+    voice: {
+      stop: () => tracks.at(-1)?.fail(),
+      track: (t: VoiceTrack) => {
+        tracks.push(t);
+        return voiced;
+      },
+    },
     memory: { text: '' },
     menu: { register: noop },
     character: { name: '小鲸', longReply: { chars: 9999, whenLit: [], looks: {}, backMs: 0 }, live2d: { props: {} } },
     dom: { chatForm: el(), chatInput: { value: '', focus: noop }, chatSend: { title: '', addEventListener: noop } },
   } as unknown as AppContext;
   chatFeature(ctx);
-  return { bus, store, saved };
+  return { bus, store, saved, says, tracks };
+}
+
+async function* twoSentences(): AsyncGenerator<ChatEvent> {
+  yield { type: 'delta', text: '今天天气不错。' };
+  yield { type: 'delta', text: '我们出去吧。' };
+  yield { type: 'done' };
 }
 
 // （可选）先吐一段，然后一直等到被中断
@@ -101,5 +116,40 @@ describe('chat send while a reply is streaming', () => {
       { role: 'user', content: '第二句' },
       { role: 'assistant', content: '好呀' },
     ]);
+  });
+});
+
+describe('chat bubble while the reply is read aloud', () => {
+  it('streams text as before when voice is off', async () => {
+    vi.mocked(streamChat).mockImplementationOnce(() => twoSentences());
+    const { bus, says } = setup();
+    bus.emit('chat:send', { text: '出去吗' });
+    await vi.waitFor(() => expect(says.at(-1)).toEqual(['今天天气不错。我们出去吧。', 6000]));
+    expect(says[0]).toEqual(['今天天气不错。', undefined]);
+  });
+
+  it('reveals sentences with the voice and hides only after the last one', async () => {
+    vi.mocked(streamChat).mockImplementationOnce(() => twoSentences());
+    const { bus, store, says, tracks } = setup({ voiced: true });
+    bus.emit('chat:send', { text: '出去吗' });
+    await vi.waitFor(() => expect(store.history).toHaveLength(2));
+    expect(store.history[1].content).toBe('今天天气不错。我们出去吧。');
+    expect(says).toEqual([]);
+    tracks[0].show('今天天气不错。');
+    expect(says).toEqual([['今天天气不错。', undefined]]);
+    tracks[0].show('我们出去吧。');
+    tracks[0].done();
+    expect(says.at(-1)).toEqual(['今天天气不错。我们出去吧。', 6000]);
+  });
+
+  it('shows the full text at once when the voice fails', async () => {
+    vi.mocked(streamChat).mockImplementationOnce(() => twoSentences());
+    const { bus, store, says, tracks } = setup({ voiced: true });
+    bus.emit('chat:send', { text: '出去吗' });
+    await vi.waitFor(() => expect(store.history).toHaveLength(2));
+    tracks[0].fail();
+    expect(says).toEqual([['今天天气不错。我们出去吧。', 6000]]);
+    tracks[0].done();
+    expect(says).toHaveLength(1);
   });
 });

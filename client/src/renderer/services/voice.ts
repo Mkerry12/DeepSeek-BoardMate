@@ -1,5 +1,6 @@
 // 朗读回复：边流式输出边按句切分 → 服务器 GPT-SoVITS 依次合成 → WebAudio 顺序播放，用实时音量驱动口型
 // decodeAudioData 按内容识别格式，wav / ogg 都能直接播；GPT-SoVITS 一句要 1~3 秒，排队合成、按顺序播放
+// track 让对话气泡跟着读：每句开始出声时才显示这句，读完才收起
 // 语音只有 GPT-SoVITS 一种：合成失败（服务器没开语音、GPT-SoVITS 没起）就不出声，口型交给正弦动画，
 // 并在 SILENT_MS 内不再请求。另外用 pet.json 的 sounds 播放提示音（WebAudio 音调，不是语音）
 import type { SettingsView, VoiceSettings } from '../../shared/types';
@@ -10,8 +11,15 @@ export type ChimeKind = 'done' | 'failed' | 'waiting' | 'asking';
 
 const SENTENCE_END = /[。！？!?～~…\n]/;
 const SOFT_BREAK = /[，,；;、]/;
-const MAX_SENTENCE = 80;
-const MIN_SOFT = 24;
+const MAX_SENTENCE = 60;
+const MIN_SOFT = 20;
+// 一段话的第一句：在前 20 字里的逗号处就切开，先合成一小段，第一声出来得快
+const FIRST_MAX = 20;
+const FIRST_MIN_SOFT = 6;
+// 太短的句子（「嗯。」「好！」）并进下一句：每次合成都有固定开销，短句播完下一句常常还没好
+const MIN_SPOKEN = 5;
+// 同时最多向服务器要几句：服务器单卡串行、排队有上限（默认 8 句），排满会 503
+const AHEAD = 3;
 const NOISE_FLOOR = 0.01;
 const GAIN = 6;
 const DEFAULT_VOLUME = 80;
@@ -49,27 +57,53 @@ export function cleanForSpeech(text: string): string {
 
 const speakable = (text: string) => /[\p{L}\p{N}]/u.test(text);
 
-function cutAt(text: string): number {
-  const end = text.search(SENTENCE_END);
-  if (end !== -1) {
-    let i = end + 1;
-    while (i < text.length && SENTENCE_END.test(text[i])) i++;
-    return i;
+const spokenLength = (text: string) => cleanForSpeech(text).match(/[\p{L}\p{N}]/gu)?.length ?? 0;
+
+/** 流式文本里第一句的长度（还不够一句返回 0）；first：一段话的开头，尽早在逗号处切 */
+export function cutAt(text: string, first = false): number {
+  const at = text.search(SENTENCE_END);
+  let end = 0;
+  if (at !== -1) {
+    end = at + 1;
+    while (end < text.length && SENTENCE_END.test(text[end])) end++;
   }
-  if (text.length < MAX_SENTENCE) return 0;
+  if (first) {
+    if (end && end <= FIRST_MAX) return end;
+    const stop = Math.min(end || text.length, FIRST_MAX);
+    for (let i = FIRST_MIN_SOFT; i < stop; i++) if (SOFT_BREAK.test(text[i])) return i + 1;
+  }
+  if (end && end <= MAX_SENTENCE) return end;
+  if (!end && text.length < MAX_SENTENCE) return 0;
   for (let i = MAX_SENTENCE - 1; i >= MIN_SOFT; i--) if (SOFT_BREAK.test(text[i])) return i + 1;
-  return MAX_SENTENCE;
+  return end || MAX_SENTENCE;
+}
+
+/** 跟着朗读显示文字：每句开始出声时 show（读不出来的句子轮到时直接 show），全部读完 done，不读了 fail */
+export interface VoiceTrack {
+  show(text: string): void;
+  done(): void;
+  fail(): void;
 }
 
 export interface Voice {
   feed(text: string): void;
   flush(): void;
   speak(text: string): void;
+  /** 接下来 feed 到 flush 之间的句子按 track 回报进度；语音没开 / 不可用时返回 false */
+  track(t: VoiceTrack): boolean;
   stop(): void;
   level(): number | null;
   chime(kind: ChimeKind, force?: boolean): void;
   setVolume(percent: number): void;
   readonly active: boolean;
+}
+
+interface Item {
+  text: string;
+  shown: string;
+  track: VoiceTrack | null;
+  end?: boolean;
+  data?: Promise<ArrayBuffer | null>;
 }
 
 export function createVoice({ getSettings, sounds }: { getSettings: () => SettingsView; sounds: () => Sounds }): Voice {
@@ -79,9 +113,13 @@ export function createVoice({ getSettings, sounds }: { getSettings: () => Settin
   let samples: Float32Array<ArrayBuffer> | null = null;
   let gen = 0;
   let abort = new AbortController();
-  let queue: { data: Promise<ArrayBuffer | null> }[] = [];
+  // text：要读的（清理过，读不出来时为空）；shown：原句，跟着 track 显示；end：flush 时放进来的收尾标记
+  let queue: Item[] = [];
   let pending = '';
+  let fresh = true;
   let pumping = false;
+  let following: VoiceTrack | null = null;
+  let attaching = false;
   let source: AudioBufferSourceNode | null = null;
   let silentUntil = 0;
 
@@ -111,16 +149,33 @@ export function createVoice({ getSettings, sounds }: { getSettings: () => Settin
     if (ctx) out?.gain.setTargetAtTime(volume, ctx.currentTime, 0.03);
   }
 
+  // 下一段要送去合成的长度：太短的并进下一句；一段话的第一句切得短些
+  function nextCut(text: string): number {
+    let n = 0;
+    do {
+      const cut = cutAt(text.slice(n), fresh);
+      if (!cut) return 0;
+      n += cut;
+    } while (spokenLength(text.slice(0, n)) < MIN_SPOKEN);
+    return n;
+  }
+
   // 流式文本：攒够一句就送去合成
   function feed(text: string) {
     if (!enabled()) return;
     pending += text;
-    for (let cut; (cut = cutAt(pending)); pending = pending.slice(cut)) enqueue(pending.slice(0, cut));
+    for (let cut; (cut = nextCut(pending)); pending = pending.slice(cut)) enqueue(pending.slice(0, cut));
   }
 
   function flush() {
     if (enabled() && pending) enqueue(pending);
     pending = '';
+    fresh = true;
+    if (attaching && following) {
+      queue.push({ text: '', shown: '', track: following, end: true });
+      pump();
+    }
+    attaching = false;
   }
 
   function speak(text: string) {
@@ -129,25 +184,51 @@ export function createVoice({ getSettings, sounds }: { getSettings: () => Settin
     flush();
   }
 
+  function track(t: VoiceTrack): boolean {
+    release();
+    if (!enabled()) return false;
+    following = t;
+    attaching = true;
+    return true;
+  }
+
+  // 正在跟读的那段不读了：让它把文字直接显示出来
+  function release() {
+    const t = following;
+    following = null;
+    attaching = false;
+    t?.fail();
+  }
+
   // 语音不可用：丢掉排队的句子，这段时间里不再请求，嘴巴交给正弦动画
   function goSilent(reason: string) {
     if (Date.now() >= silentUntil) console.info('[voice] 不朗读：', reason);
     silentUntil = Date.now() + SILENT_MS;
     queue = [];
     pending = '';
+    fresh = true;
+    release();
   }
 
   function enqueue(sentence: string) {
     if (!enabled()) return;
     const text = cleanForSpeech(sentence);
-    if (!speakable(text)) return;
-    const signal = abort.signal;
-    const data = synthSpeech(getSettings(), text, conf().name || '', signal).catch((err: Error) => {
-      if (!signal.aborted) goSilent(err.message);
-      return null;
-    });
-    queue.push({ data });
+    fresh = false;
+    queue.push({ text: speakable(text) ? text : '', shown: sentence, track: attaching ? following : null });
+    request();
     pump();
+  }
+
+  // 排在前面的 AHEAD 句先送去合成（服务器那边依次合成，正好流水线）
+  function request() {
+    for (const item of queue.slice(0, AHEAD)) {
+      if (item.data || !item.text) continue;
+      const signal = abort.signal;
+      item.data = synthSpeech(getSettings(), item.text, conf().name || '', signal).catch((err: Error) => {
+        if (!signal.aborted) goSilent(err.message);
+        return null;
+      });
+    }
   }
 
   async function pump() {
@@ -155,15 +236,32 @@ export function createVoice({ getSettings, sounds }: { getSettings: () => Settin
     pumping = true;
     const mine = gen;
     while (queue.length && mine === gen) {
-      const { data } = queue.shift()!;
-      const bytes = await data;
+      const item = queue.shift()!;
+      request();
+      const bytes = await (item.data ?? Promise.resolve(null));
       if (mine !== gen) return;
-      if (bytes) await play(bytes, mine);
+      const mineTrack = item.track && item.track === following ? item.track : null;
+      if (item.end) {
+        if (mineTrack) {
+          following = null;
+          mineTrack.done();
+        }
+        continue;
+      }
+      let shown = false;
+      const reveal = () => {
+        shown = true;
+        if (mineTrack && mineTrack === following) mineTrack.show(item.shown);
+      };
+      if (bytes) await play(bytes, mine, reveal);
+      if (mine !== gen) return;
+      if (!shown) reveal();
     }
     if (mine === gen) pumping = false;
   }
 
-  async function play(bytes: ArrayBuffer, mine: number): Promise<boolean> {
+  // onStart：解码完、真正开始出声的那一刻
+  async function play(bytes: ArrayBuffer, mine: number, onStart: () => void): Promise<boolean> {
     try {
       const c = audio();
       const buffer = await c.decodeAudioData(bytes);
@@ -179,6 +277,7 @@ export function createVoice({ getSettings, sounds }: { getSettings: () => Settin
         };
         source = src;
         src.start();
+        onStart();
       });
       return true;
     } catch (err) {
@@ -193,7 +292,9 @@ export function createVoice({ getSettings, sounds }: { getSettings: () => Settin
     abort = new AbortController();
     queue = [];
     pending = '';
+    fresh = true;
     pumping = false;
+    release();
     try {
       source?.stop();
     } catch {}
@@ -235,6 +336,7 @@ export function createVoice({ getSettings, sounds }: { getSettings: () => Settin
     feed,
     flush,
     speak,
+    track,
     stop,
     level,
     chime,
