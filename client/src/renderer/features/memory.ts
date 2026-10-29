@@ -18,7 +18,7 @@ export const memoryFeature: Feature = ({ bus, store, pet, bubble, memory, status
   async function organizeMemory() {
     if (!store.history.length) return say('我们还没聊过天呢，没什么好整理的～', 3000);
     pet.setNotes(true);
-    bubble.sayTyping('小鲸在整理小本本');
+    bubble.sayTyping(`${character.name}在整理小本本`);
     try {
       await memory.summarize();
       if (eraser) pet.flash(eraser);
@@ -43,7 +43,7 @@ export const memoryFeature: Feature = ({ bus, store, pet, bubble, memory, status
       label: '她记得的事',
       icon: 'book',
       submenu: () => [
-        { note: memory.busy ? '正在整理…' : '小鲸会悄悄记下关于你的事' },
+        { note: memory.busy ? '正在整理…' : `${character.name}会悄悄记下关于你的事` },
         { label: '她记得的事', icon: 'book', action: showMemory },
         { label: '现在整理一下', icon: 'refresh', action: organizeMemory },
         { label: '忘掉这些', icon: 'trash', confirm: '再点一次，确认忘掉', action: forgetMemory },

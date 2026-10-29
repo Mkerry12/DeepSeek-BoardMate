@@ -2,7 +2,7 @@
 import { app, Menu, nativeImage, Tray, type MenuItemConstructorOptions } from 'electron';
 import { updateMenuItem } from '../shared/update';
 import { autostartEnabled, setAutostart } from './autostart';
-import { ICON, WIN_ICON } from './paths';
+import { characterName, ICON, WIN_ICON } from './paths';
 import type { Updater } from './updater';
 import { getWindow, sendToRenderer, showWindow, toggleWindow } from './window';
 
@@ -22,12 +22,13 @@ export function createTray(updater: Updater): Tray {
       ? WIN_ICON
       : nativeImage.createFromPath(ICON).resize({ width: 32, height: 32, quality: 'best' }),
   );
-  tray.setToolTip('DeepSeek DeskMate · 小鲸');
+  const name = characterName();
+  tray.setToolTip(`DeepSeek DeskMate · ${name}`);
   tray.on('click', toggleWindow);
   tray.on('right-click', () =>
     tray?.popUpContextMenu(
       Menu.buildFromTemplate([
-        { label: getWindow()?.isVisible() ? '隐藏小鲸' : '显示小鲸', click: toggleWindow },
+        { label: getWindow()?.isVisible() ? `隐藏${name}` : `显示${name}`, click: toggleWindow },
         {
           label: '设置',
           click: () => {

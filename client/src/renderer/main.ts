@@ -1,4 +1,5 @@
 // 渲染进程入口：读设置 → 加载角色 → 建共享服务 → 按顺序装上各功能模块
+import { resolveOutfit } from './character/config';
 import { createBus, type AppEvents } from './core/bus';
 import { MENU_ORDER, type AppContext, type Feature } from './core/context';
 import { queryDom, showHint } from './core/dom';
@@ -43,15 +44,18 @@ const FEATURES: Feature[] = [
 const dom = queryDom();
 const bus = createBus<AppEvents>();
 const status = createStatus();
-const store = createStore(bus, await window.desk.getSettings(), await window.desk.getHistory());
-
 const { pet, character } = await loadPet(dom.canvas).catch((err: Error) => {
   console.error(err);
   showHint(dom, `模型加载失败：${err.message}`);
   window.desk.setIgnoreMouse(false);
   throw err;
 });
+const store = createStore(bus, await window.desk.getSettings(), await window.desk.getHistory(), (s) => ({
+  ...s,
+  outfit: resolveOutfit(s.outfit, character.outfit.default),
+}));
 pet.setOutfit(store.settings.outfit);
+dom.chatInput.placeholder = `和${character.name}说点什么…`;
 
 const voice = createVoice({ getSettings: () => store.settings, sounds: () => pet.sounds });
 const memory = await createMemory({ getSettings: () => store.settings, getHistory: () => store.history });

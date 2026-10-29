@@ -11,13 +11,20 @@ export interface Store {
   saveHistory(): void;
 }
 
-export function createStore(bus: AppBus, settings: SettingsView, history: ChatMessage[]): Store {
+/** normalize：从主进程拿到设置后补上依赖角色配置的默认值（如默认装扮） */
+export function createStore(
+  bus: AppBus,
+  initial: SettingsView,
+  history: ChatMessage[],
+  normalize: (s: SettingsView) => SettingsView = (s) => s,
+): Store {
+  let settings = normalize(initial);
   return {
     get settings() {
       return settings;
     },
     async update(patch) {
-      settings = await window.desk.setSettings(patch);
+      settings = normalize(await window.desk.setSettings(patch));
       bus.emit('settings:changed', { settings });
       return settings;
     },
