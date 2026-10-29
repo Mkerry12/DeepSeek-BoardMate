@@ -23,6 +23,14 @@ function toGain(percent: number | undefined): number {
   return (p / 100) ** 2;
 }
 
+// 颜文字、字符表情、装饰符号读不出来，和 server/deskmate_server/tts/text.py 保持一致
+const EMOTICON =
+  /(?<![A-Za-z0-9])(?:[QT][wA_][QT]|owo|uwu|ovo|xd|orz|otl|o_o|o\.o|x_x|@_@|>[_w.]<|\^_?\^|-_-|=_=|\*_\*|[:;=][-']?[)(DPO3|])(?![A-Za-z0-9])/gi;
+const KAOMOJI = /(?:(?<![A-Za-z])[oOヽ٩ᕕΣ\\])?[（(]([^（）()\n]{0,20})[）)](?:[oOﾉノ۶وᕗっ/](?![A-Za-z]))?/g;
+// 括号里有汉字、数字或成词的字母（「（比如这样）」「(1)」「(TTS)」）就是正常文字，不当颜文字
+const WORDY = /[\u3400-\u9fff0-9０-９]|[A-Za-zＡ-Ｚａ-ｚ]{2}/;
+const DECOR = /[\u0300-\u036f\u2500-\u257f\u25a0-\u25ff\u2600-\u27bf\u3003\u309c\ufe35\ufe36\uff61\uff65\uff9fヽﾉ٩۶]/g;
+
 export function cleanForSpeech(text: string): string {
   return text
     .replace(/<think>[\s\S]*?(<\/think>|$)/g, '')
@@ -30,6 +38,9 @@ export function cleanForSpeech(text: string): string {
     .replace(/\[\s*[a-zA-Z_]+\s*\]/g, '')
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/https?:\/\/\S+/g, '')
+    .replace(EMOTICON, '')
+    .replace(KAOMOJI, (m, inner: string) => (WORDY.test(inner) ? m : ''))
+    .replace(DECOR, '')
     .replace(/[*_`#>|~^=]+/g, ' ')
     .replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, '')
     .replace(/\s+/g, ' ')

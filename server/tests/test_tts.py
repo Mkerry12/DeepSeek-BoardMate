@@ -64,6 +64,37 @@ def test_clean_for_speech_strips_tags_markdown_and_emoji():
     assert clean_for_speech(text) == "你好 呀，看 和 链接"
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("好耶(｡•̀ᴗ-)✧", "好耶"),
+        ("气死了(╯°□°）╯︵ ┻━┻", "气死了"),
+        ("开心(≧▽≦)", "开心"),
+        ("嗯(´・ω・`)", "嗯"),
+        ("哇o(*￣▽￣*)o好棒", "哇好棒"),
+        ("耶\\(^o^)/", "耶"),
+        ("呜呜QwQ", "呜呜"),
+        ("哈哈^_^", "哈哈"),
+        ("好难T_T", "好难"),
+        ("啊>_<", "啊"),
+        ("(T_T)不要", "不要"),
+        ("好的:)", "好的"),
+        ("太好了:D", "太好了"),
+        ("owo是什么", "是什么"),
+        ("晚安★☆♡❤✿♪✧", "晚安"),
+    ],
+)
+def test_clean_for_speech_strips_kaomoji(text, expected):
+    assert clean_for_speech(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text", ["（比如这样）", "第(1)步", "用(TTS)朗读", "10:30 开会", "QwQa 不算", "好的～"]
+)
+def test_clean_for_speech_keeps_normal_text(text):
+    assert clean_for_speech(text) == text
+
+
 def test_split_text_merges_short_and_splits_long():
     assert split_text("你好。今天怎么样？", 80) == ["你好。今天怎么样？"]
     s = "啊" * 50 + "。"

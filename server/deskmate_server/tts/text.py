@@ -1,13 +1,37 @@
 """朗读前的文本处理：去掉不该读出来的东西、按句切分。规则与客户端 services/voice.ts 的 cleanForSpeech 一致。"""
 
 import re
+from collections.abc import Callable
 
-_CLEAN_RULES: list[tuple[re.Pattern[str], str]] = [
+_WORDY = re.compile("[\u3400-\u9fff0-9０-９]|[A-Za-zＡ-Ｚａ-ｚ]{2}")
+
+_CLEAN_RULES: list[tuple[re.Pattern[str], str | Callable[[re.Match[str]], str]]] = [
     (re.compile(r"<think>.*?(</think>|$)", re.S), ""),
     (re.compile(r"```.*?(```|$)", re.S), ""),
     (re.compile(r"\[\s*[a-zA-Z_]+\s*\]"), ""),
     (re.compile(r"!?\[([^\]]*)\]\([^)]*\)"), r"\1"),
     (re.compile(r"https?://\S+"), ""),
+    # 字符表情和颜文字（括号里有汉字、数字或成词字母的是正常文字，留着）
+    (
+        re.compile(
+            r"(?<![A-Za-z0-9])(?:[QT][wA_][QT]|owo|uwu|ovo|xd|orz|otl|o_o|o\.o|x_x|@_@|>[_w.]<|\^_?\^|-_-|=_=|\*_\*"
+            r"|[:;=][-']?[)(DPO3|])(?![A-Za-z0-9])",
+            re.I,
+        ),
+        "",
+    ),
+    (
+        re.compile(
+            r"(?:(?<![A-Za-z])[oOヽ٩ᕕΣ\\])?[（(]([^（）()\n]{0,20})[）)](?:[oOﾉノ۶وᕗっ/](?![A-Za-z]))?"
+        ),
+        lambda m: m.group(0) if _WORDY.search(m.group(1)) else "",
+    ),
+    (
+        re.compile(
+            "[\u0300-\u036f\u2500-\u257f\u25a0-\u25ff\u2600-\u27bf\u3003\u309c\ufe35\ufe36\uff61\uff65\uff9fヽﾉ٩۶]"
+        ),
+        "",
+    ),
     (re.compile(r"[*_`#>|~^=]+"), " "),
     # emoji、变体选择符、零宽连接符
     (re.compile("[\U0001f000-\U0001faff\u2600-\u27bf\ufe0f\u200d]"), ""),
