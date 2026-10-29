@@ -21,11 +21,13 @@ export interface AssistantDeps {
   wake: () => void;
   chime: (kind: ChimeKind) => void;
   reminders: CharacterConfig['reminders'];
+  /** 角色名（deskmate.json 的 name），用在提醒标题和台词里 */
+  name: string;
   /** 开始番茄钟时闪一下的表情（桌上的画笔） */
   focusLook?: string;
 }
 
-export function createAssistant({ pet, say, notify, isBusy, wake, chime, reminders, focusLook }: AssistantDeps) {
+export function createAssistant({ pet, say, notify, isBusy, wake, chime, reminders, name, focusLook }: AssistantDeps) {
   const timers: Partial<Record<ReminderKind, ReturnType<typeof setInterval>>> = {};
   let pomodoro: { phase: 'focus' | 'break'; endAt: number; timer: ReturnType<typeof setTimeout> } | null = null;
 
@@ -43,7 +45,7 @@ export function createAssistant({ pet, say, notify, isBusy, wake, chime, reminde
       if (emotion) pet.react(emotion);
       chime('waiting');
       say(line, HOLD);
-      notify('小鲸提醒', line);
+      notify(`${name}提醒`, line);
     });
   }
 
@@ -95,7 +97,7 @@ export function createAssistant({ pet, say, notify, isBusy, wake, chime, reminde
     startPhase('focus', FOCUS_MIN);
     pet.react('wave');
     if (focusLook) pet.flash(focusLook);
-    say(`番茄钟开始！专注 ${FOCUS_MIN} 分钟，小鲸帮你看着时间～`, 5000);
+    say(`番茄钟开始！专注 ${FOCUS_MIN} 分钟，${name}帮你看着时间～`, 5000);
   }
 
   function pomodoroLabel() {
@@ -124,6 +126,7 @@ export const assistantFeature: Feature = ({ bus, store, pet, bubble, voice, stat
     wake: () => bus.emit('user:active'),
     chime: (kind) => voice.chime(kind),
     reminders: character.reminders,
+    name: character.name,
     focusLook: character.live2d.props.brush?.look,
   });
   assistant.configure(store.settings.reminders);

@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { INTERNAL_EMOTIONS, validateConfig } from '../src/renderer/character/config';
+import { DEFAULT_SETTINGS } from '../src/main/settings';
+import { INTERNAL_EMOTIONS, resolveOutfit, validateConfig } from '../src/renderer/character/config';
 import { DEFAULT_PERSONA, MEMORY_PROMPT, REPLY_RULES } from '../src/renderer/lib/persona';
 import { StreamFilter } from '../src/renderer/lib/stream-filter';
 import { EMOTION_TAGS, STATE_TAGS } from '../src/shared/emotions';
@@ -13,6 +14,15 @@ describe('character config (deskmate.json)', () => {
   it('the bundled character passes validation', () => {
     expect(character.name).toBe('小鲸');
     expect(character.live2d.zones.length).toBeGreaterThan(0);
+  });
+
+  it('outfit: the character config is the only source of defaults', () => {
+    expect(DEFAULT_SETTINGS.outfit).toEqual({});
+    const defaults = character.outfit.default;
+    expect(resolveOutfit({}, defaults)).toEqual(defaults);
+    // 选了「无」（空串）要覆盖默认，选了别的就叠在默认上
+    expect(resolveOutfit({ whale: '' }, defaults).whale).toBe('');
+    expect(resolveOutfit({ glasses: '圆眼镜' }, defaults)).toEqual({ ...defaults, glasses: '圆眼镜' });
   });
 
   it('every character folder under assets/live2d has a valid deskmate.json', () => {

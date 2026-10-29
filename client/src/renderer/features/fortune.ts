@@ -47,7 +47,7 @@ export const fortuneFeature: Feature = ({ bus, pet, bubble, voice, status, menu,
     bus.emit('user:active');
     const { emotion, text } = todayFortune(character.fortune);
     pet.motion(character.fortune.motion, FORTUNE_REVEAL_MS / 1000 + 1.5);
-    bubble.sayTyping('小鲸在看今日运势');
+    bubble.sayTyping(`${character.name}在看今日运势`);
     setTimeout(() => {
       pet.react(emotion);
       voice.chime('done');

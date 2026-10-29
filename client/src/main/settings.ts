@@ -14,7 +14,8 @@ export const DEFAULT_SETTINGS: Settings = {
   persona: '',
   api: { preset: 'deepseek', key: '', baseUrl: '', model: 'deepseek-chat' },
   reminders: { water: { on: true, minutes: 45 }, rest: { on: true, minutes: 60 } },
-  outfit: { whale: '头顶鲸' },
+  // 只存用户改过的槽位；默认装扮在角色配置 deskmate.json 的 outfit.default 里
+  outfit: {},
   voice: { on: false, name: 'zh-CN-XiaoyiNeural', sfx: true, volume: 80 },
   greeted: {},
   alwaysOnTop: true,

@@ -92,7 +92,7 @@ export const chatFeature: Feature = (ctx) => {
     try {
       for await (const ev of streamChat(store.settings, context(), ctrl.signal, memory.text)) {
         if (ev.type === 'thinking') {
-          bubble.sayTyping('小鲸思考中');
+          bubble.sayTyping(`${character.name}思考中`);
         } else if (ev.type === 'queued') {
           bubble.sayTyping('有人在和我聊天，排队中');
         } else if (ev.type === 'emotion') {
@@ -120,7 +120,7 @@ export const chatFeature: Feature = (ctx) => {
       }
       bus.emit('chat:end', { reply });
       flashProp('eraser');
-      say(reply || '（小鲸没想好说什么…）', Math.max(6000, reply.length * 180));
+      say(reply || `（${character.name}没想好说什么…）`, Math.max(6000, reply.length * 180));
     } catch (err) {
       if (ctrl.signal.aborted) {
         if (abortCtrl !== ctrl) return;

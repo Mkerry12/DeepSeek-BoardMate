@@ -18,6 +18,17 @@ export const RENDERER_DEV_URL = !app.isPackaged ? process.env.ELECTRON_RENDERER_
 
 export const userFile = (name: string): string => path.join(app.getPath('userData'), name);
 
+/** 角色名（deskmate.json 的 name），托盘菜单用；读不到时用应用名 */
+export function characterName(dir = MODEL_DIR): string {
+  try {
+    const { name } = JSON.parse(fs.readFileSync(path.join(dir, 'deskmate.json'), 'utf8')) as { name?: unknown };
+    if (typeof name === 'string' && name.trim()) return name.trim();
+  } catch {
+    // 交给下面的默认值
+  }
+  return 'DeskMate';
+}
+
 // 渲染进程按这个地址加载模型：打包后是 file://；开发时页面来自 http://localhost，
 // 不能读 file://，改走 Vite 的 /@fs/（client/ 在 Vite 的允许列表里）
 export function modelUrl(): string {

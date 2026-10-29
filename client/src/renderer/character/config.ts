@@ -1,6 +1,7 @@
 // 角色配置 deskmate.json：表情映射、触摸区、闲置小动作、台词、换装、运势……
 // 换角色 = 在 assets/live2d/ 下放一个新文件夹（模型 + pet.json + deskmate.json）
 import { EMOTION_TAGS, STATE_TAGS } from '../../shared/emotions';
+import type { Outfit } from '../../shared/types';
 import { arr, ConfigError, num, obj, record, str, tuple, type Check } from './schema';
 
 export const CONFIG_FILE = 'deskmate.json';
@@ -97,6 +98,11 @@ export type IdleActivity = CharacterConfig['idle']['activities'][number];
 export type GreetingPeriod = CharacterConfig['greetings'][number];
 export type FortuneConfig = CharacterConfig['fortune'];
 export type TouchConfig = CharacterConfig['touch'];
+
+/** 实际装扮 = 角色默认装扮 + 用户选过的槽位（选「无」存的是空串，同样会覆盖默认） */
+export function resolveOutfit(saved: Outfit, defaults: CharacterConfig['outfit']['default']): Outfit {
+  return { ...defaults, ...saved };
+}
 
 /** 代码里直接用到的情绪（除了模型回复里的标签之外） */
 export const INTERNAL_EMOTIONS = ['soulout', 'pat', 'blush'];

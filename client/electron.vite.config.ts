@@ -7,7 +7,7 @@ const root = __dirname;
 export default defineConfig({
   // 主进程 / preload：dependencies（msedge-tts、electron-updater）不打包，由 electron-builder 放进 app.asar 的 node_modules
   main: {
-    // 官方服务器地址：构建时读环境变量 DESKMATE_SERVER_URL（见 build-env.mts）
+    // 官方服务器地址：构建时读环境变量 DESKMATE_SERVER_URL（见 build-env.ts）
     define: buildDefines(),
     build: { rollupOptions: { input: resolve(root, 'src/main/index.ts') } },
   },
@@ -27,6 +27,8 @@ export default defineConfig({
     },
     build: {
       rollupOptions: { input: resolve(root, 'src/renderer/index.html') },
+      // electron-vite 默认不压缩渲染进程代码；压缩后 pixi.js / Live2D 引擎体积少一半多，加载更快
+      minify: true,
       // 引擎 + pixi.js 体积大，单独的 chunk 本来就要等 Cubism Core 加载后才动态导入
       chunkSizeWarningLimit: 2000,
     },
