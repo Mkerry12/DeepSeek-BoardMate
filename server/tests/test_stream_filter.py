@@ -1,6 +1,6 @@
 import pytest
 
-from stream_filter import StreamFilter, strip_think
+from deskmate_server.stream_filter import StreamFilter, strip_think
 
 
 def run(chunks: list[str]) -> list[dict]:

@@ -1,5 +1,5 @@
 {
-  "$comment": "回复开头允许的情绪标签（单一来源）。顺序即提示词里的顺序。server/app.py REPLY_RULES、server/stream_filter.py EMOTIONS 必须与此一致（server/tests/test_emotion_tags.py 校验）；客户端直接读取本文件。",
+  "$comment": "回复开头允许的情绪标签（单一来源）。顺序即提示词里的顺序。服务器（server/deskmate_server/persona.py）和客户端都直接读取本文件。",
   "tags": [
     "happy",
     "sad",

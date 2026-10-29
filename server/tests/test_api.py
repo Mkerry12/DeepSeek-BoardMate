@@ -4,8 +4,15 @@ import time
 import httpx
 import pytest
 import respx
+from fastapi.testclient import TestClient
 
-from tests.conftest import AUTH
+from deskmate_server import persona
+from deskmate_server.main import create_app
+from deskmate_server.routes import tts as tts_route
+from tests.conftest import AUTH, make_settings
+
+# good-token 是 ACCESS_TOKENS 里的第一个，限流按令牌 id 分桶
+GOOD_KEY = "env:1"
 
 OLLAMA = "http://ollama.test"
 
@@ -47,17 +54,19 @@ def test_auth_accepts_valid_tokens(client, token):
     assert r.json() == {"ok": True}
 
 
-def test_auth_open_when_no_tokens_configured(client, app, monkeypatch):
-    monkeypatch.setattr(app, "ACCESS_TOKENS", set())
-    assert client.get("/auth-check").status_code == 200
-    assert ("chat", "anonymous") in app._requests
+def test_auth_open_when_no_tokens_configured():
+    app = create_app(make_settings(access_tokens=""))
+    with TestClient(app) as client:
+        assert client.get("/auth-check").status_code == 200
+        assert client.get("/health").json()["auth"] is False
+    assert ("chat", "anonymous") in app.state.limiter.windows
 
 
 # ---------- 限流 ----------
 
 
-def test_rate_limit_per_token(client, app):
-    for _ in range(app.RATE_LIMIT_PER_MIN):
+def test_rate_limit_per_token(client, app, settings):
+    for _ in range(settings.rate_limit_per_min):
         assert client.get("/auth-check", headers=AUTH).status_code == 200
     r = client.get("/auth-check", headers=AUTH)
     assert r.status_code == 429
@@ -65,16 +74,16 @@ def test_rate_limit_per_token(client, app):
     assert client.get("/auth-check", headers={"Authorization": "Bearer other-token"}).status_code == 200
 
 
-def test_rate_limit_window_expires(client, app):
+def test_rate_limit_window_expires(client, app, settings):
     old = time.monotonic() - 61
-    app._requests[("chat", "good-token")].extend([old] * app.RATE_LIMIT_PER_MIN)
+    app.state.limiter.windows[("chat", GOOD_KEY)].extend([old] * settings.rate_limit_per_min)
     assert client.get("/auth-check", headers=AUTH).status_code == 200
-    assert len(app._requests[("chat", "good-token")]) == 1
+    assert len(app.state.limiter.windows[("chat", GOOD_KEY)]) == 1
 
 
-def test_tts_bucket_is_separate_from_chat(client, app):
+def test_tts_bucket_is_separate_from_chat(client, app, settings):
     now = time.monotonic()
-    app._requests[("chat", "good-token")].extend([now] * app.RATE_LIMIT_PER_MIN)
+    app.state.limiter.windows[("chat", GOOD_KEY)].extend([now] * settings.rate_limit_per_min)
     assert client.get("/auth-check", headers=AUTH).status_code == 429
     r = client.post("/tts", headers=AUTH, json={"text": ""})
     assert r.status_code == 422  # 过了鉴权和限流，卡在参数校验
@@ -147,16 +156,18 @@ def test_chat_rejects_bad_role(client):
     assert r.status_code == 422
 
 
-def test_chat_input_length_cap(client, app):
-    r = client.post("/chat", headers=AUTH, json={"messages": [user_msg("字" * (app.MAX_INPUT_CHARS + 1))]})
+def test_chat_input_length_cap(client, app, settings):
+    r = client.post(
+        "/chat", headers=AUTH, json={"messages": [user_msg("字" * (settings.max_input_chars + 1))]}
+    )
     assert r.status_code == 400
 
 
-def test_chat_persona_length_cap(client, app):
+def test_chat_persona_length_cap(client, app, settings):
     r = client.post(
         "/chat",
         headers=AUTH,
-        json={"messages": [user_msg()], "persona": "人" * (app.MAX_PERSONA_CHARS + 1)},
+        json={"messages": [user_msg()], "persona": "人" * (settings.max_persona_chars + 1)},
     )
     assert r.status_code == 400
     assert "人设太长" in r.json()["detail"]
@@ -183,7 +194,7 @@ def test_chat_rejects_embedding_model(client):
 
 
 @respx.mock
-def test_chat_streams_filtered_events(client, app):
+def test_chat_streams_filtered_events(client, app, settings):
     lines = [
         {"message": {"thinking": "嗯"}},
         {"message": {"content": "<think>想"}},
@@ -209,12 +220,12 @@ def test_chat_streams_filtered_events(client, app):
     assert events[-1] == {"type": "done"}
 
     payload = json.loads(route.calls.last.request.content)
-    assert payload["model"] == app.OLLAMA_MODEL
+    assert payload["model"] == settings.ollama_model
     system = payload["messages"][0]
     assert system["role"] == "system"
     assert system["content"].startswith("你是猫\n规则：")
-    assert system["content"].endswith("记" * app.MEMORY_MAX_CHARS)
-    assert "记" * (app.MEMORY_MAX_CHARS + 1) not in system["content"]
+    assert system["content"].endswith("记" * settings.memory_max_chars)
+    assert "记" * (settings.memory_max_chars + 1) not in system["content"]
 
 
 @respx.mock
@@ -226,30 +237,30 @@ def test_chat_ollama_error_is_reported_in_stream(client):
 
 
 @respx.mock
-def test_chat_sends_only_recent_history(client, app):
+def test_chat_sends_only_recent_history(client, app, settings):
     route = respx.post(f"{OLLAMA}/api/chat").mock(
         return_value=httpx.Response(200, text=json.dumps({"message": {"content": "[wave]嗨"}, "done": True}))
     )
-    msgs = [user_msg(f"m{i}") for i in range(app.MAX_HISTORY + 5)]
+    msgs = [user_msg(f"m{i}") for i in range(settings.max_history + 5)]
     client.post("/chat", headers=AUTH, json={"messages": msgs})
     sent = json.loads(route.calls.last.request.content)["messages"][1:]
-    assert [m["content"] for m in sent] == [m["content"] for m in msgs[-app.MAX_HISTORY :]]
+    assert [m["content"] for m in sent] == [m["content"] for m in msgs[-settings.max_history :]]
 
 
 # ---------- 提示词 / 工具函数 ----------
 
 
-def test_system_prompt_default_and_memory(app):
-    assert app.system_prompt(None).startswith(app.DEFAULT_PERSONA)
-    assert app.MEMORY_INTRO not in app.system_prompt("  ", "   ")
-    prompt = app.system_prompt("", "x" * 900)
-    assert prompt.endswith(f"{app.MEMORY_INTRO}\n" + "x" * app.MEMORY_MAX_CHARS)
+def test_system_prompt_default_and_memory():
+    assert persona.system_prompt(None).startswith(persona.DEFAULT_PERSONA)
+    assert persona.MEMORY_INTRO not in persona.system_prompt("  ", "   ")
+    prompt = persona.system_prompt("", "x" * 900)
+    assert prompt.endswith(f"{persona.MEMORY_INTRO}\n" + "x" * 500)
 
 
-def test_clip_lines_cuts_at_line_boundary(app):
-    assert app.clip_lines("短", 10) == "短"
-    assert app.clip_lines("aaaa\nbbbb\ncccc", 12) == "aaaa\nbbbb"
-    assert app.clip_lines("abcdefghij", 4) == "abcd"
+def test_clip_lines_cuts_at_line_boundary():
+    assert persona.clip_lines("短", 10) == "短"
+    assert persona.clip_lines("aaaa\nbbbb\ncccc", 12) == "aaaa\nbbbb"
+    assert persona.clip_lines("abcdefghij", 4) == "abcd"
 
 
 @respx.mock
@@ -280,23 +291,23 @@ class FakeCommunicate:
 
 
 @pytest.fixture
-def fake_tts(app, monkeypatch):
+def fake_tts(monkeypatch):
     FakeCommunicate.calls = []
-    monkeypatch.setattr(app.edge_tts, "Communicate", FakeCommunicate)
+    monkeypatch.setattr(tts_route.edge_tts, "Communicate", FakeCommunicate)
     return FakeCommunicate
 
 
-def test_tts_returns_audio(client, app, fake_tts):
+def test_tts_returns_audio(client, settings, fake_tts):
     r = client.post("/tts", headers=AUTH, json={"text": "  你好  "})
     assert r.status_code == 200
     assert r.headers["content-type"] == "audio/mpeg"
     assert r.content == b"ID3mp3"
-    assert fake_tts.calls == [("你好", app.TTS_VOICE)]
+    assert fake_tts.calls == [("你好", settings.tts_voice)]
 
 
-def test_tts_truncates_long_text(client, app, fake_tts):
+def test_tts_truncates_long_text(client, settings, fake_tts):
     client.post("/tts", headers=AUTH, json={"text": "读" * 1000})
-    assert fake_tts.calls[0][0] == "读" * app.TTS_MAX_CHARS
+    assert fake_tts.calls[0][0] == "读" * settings.tts_max_chars
 
 
 @pytest.mark.parametrize("text", ["", "x" * 4001])
@@ -323,12 +334,12 @@ def test_tts_requires_auth(client, fake_tts):
     assert client.post("/tts", json={"text": "hi"}).status_code == 401
 
 
-def test_tts_upstream_failure(client, app, monkeypatch):
+def test_tts_upstream_failure(client, monkeypatch):
     class Broken(FakeCommunicate):
         async def stream(self):
             raise RuntimeError("network")
             yield  # pragma: no cover
 
-    monkeypatch.setattr(app.edge_tts, "Communicate", Broken)
+    monkeypatch.setattr(tts_route.edge_tts, "Communicate", Broken)
     r = client.post("/tts", headers=AUTH, json={"text": "hi"})
     assert r.status_code == 502

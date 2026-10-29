@@ -44,10 +44,27 @@ cd server
 python -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt -r requirements-dev.txt
 copy .env.example .env      # 按需修改 ACCESS_TOKENS、OLLAMA_MODEL 等
-.\.venv\Scripts\python app.py
+.\.venv\Scripts\python app.py      # 等价于 python -m deskmate_server
 ```
 
-> `.env` 里是令牌等机密，已被 `.gitignore` 忽略，**永远不要提交**。新增配置项时请同步更新 `.env.example`。
+> `.env` 里是令牌等机密，已被 `.gitignore` 忽略，**永远不要提交**。新增配置项时请同步更新 `.env.example`
+> 和 `deskmate_server/config.py` 的 `Settings`（启动时会校验类型和范围，填错会直接报出是哪一项）。
+
+#### 依赖锁定
+
+`requirements.in` / `requirements-dev.in` 写直接依赖（宽松版本），`requirements.txt` / `requirements-dev.txt`
+是由 [uv](https://docs.astral.sh/uv/) 生成的**锁定版本**（`--universal`，同一份文件 Windows 和 Linux/Docker 通用）。
+平时只用 pip 安装锁定文件即可，不需要装 uv；只有增删 / 升级依赖时才重新生成：
+
+```powershell
+# 安装 uv：pip install uv（或 winget install astral-sh.uv）
+uv pip compile requirements.in --universal --python-version 3.10 -o requirements.txt
+uv pip compile requirements-dev.in --universal --python-version 3.10 -o requirements-dev.txt
+.\.venv\Scripts\pip install -r requirements.txt -r requirements-dev.txt
+```
+
+国内网络连 PyPI 不稳定时，可临时加镜像：`pip install ... -i https://pypi.tuna.tsinghua.edu.cn/simple`，
+uv 用环境变量 `$env:UV_INDEX_URL='https://pypi.tuna.tsinghua.edu.cn/simple'`（不会写进锁定文件）。
 
 ## 2. 检查与测试
 
@@ -110,7 +127,7 @@ pre-commit install
 ## 5. 项目结构
 
 ```
-shared/emotion-tags.json      情绪标签唯一来源（客户端直接导入，服务器由测试校验）
+shared/emotion-tags.json      情绪标签唯一来源（客户端直接导入，服务器启动时读取）
 client/                       Electron 客户端（TypeScript + electron-vite）
   electron.vite.config.ts     main / preload / renderer 三份 Vite 构建
   src/shared/                 主进程和渲染进程共用
@@ -138,9 +155,20 @@ client/                       Electron 客户端（TypeScript + electron-vite）
   test/                       Vitest 单元测试
   assets/live2d/<角色>/        Live2D 模型（CC BY-NC-SA 4.0）+ deskmate.json 角色数据
 server/
-  app.py                      FastAPI：鉴权、限流、/chat /memory /models /tts /health
-  stream_filter.py            流式过滤
-  tests/                      pytest
+  app.py                      兼容入口（python app.py），实际代码在 deskmate_server/
+  requirements.in / .txt      直接依赖 / uv 生成的锁定版本（-dev 同理）
+  deskmate_server/
+    main.py                   应用工厂 create_app(settings) + run()；__main__.py 支持 python -m deskmate_server
+    config.py                 Settings（pydantic-settings）：读环境变量 / server/.env，启动时校验
+    auth.py                   Bearer 令牌鉴权 + 按令牌 id 限流的依赖（ChatAuth / TTSAuth）
+    ratelimit.py              60 秒滑动窗口限流器
+    ollama.py                 Ollama 客户端：探活、模型列表（排除嵌入模型，缓存 30 秒）、聊天
+    persona.py                默认人设、REPLY_RULES（情绪标签读 shared/emotion-tags.json）、记忆提示词
+    stream_filter.py          流式过滤：去 <think>、解析情绪标签
+    logging_setup.py          访问日志中间件：request id、路径、状态码、耗时、令牌标签（从不记录令牌本身）
+    schemas.py                请求体模型与长度限制
+    routes/                   health（/health /auth-check）、models、chat（SSE）、memory、tts
+  tests/                      pytest（conftest 用 make_settings() 构造配置，不读本机 .env）
 ```
 
 ### 渲染进程怎么组织
@@ -152,8 +180,8 @@ server/
 ## 6. 常见改动指南
 
 - **新增情绪标签**：
-  1. 加到 `shared/emotion-tags.json`（客户端的流式过滤和提示词自动跟着变）
-  2. 同步 `server/stream_filter.py` 的 `EMOTIONS` 和 `server/app.py` 的 `REPLY_RULES`（两边测试会检查是否一致）
+  1. 加到 `shared/emotion-tags.json`（客户端、服务器的流式过滤和提示词都自动跟着变）
+  2. 如有需要，在 `server/deskmate_server/persona.py` 的 `REPLY_RULES` 第 3 条补充这个标签的使用场景
   3. 在每个角色的 `deskmate.json` 的 `live2d.emotions` 里映射到表情 / 动作（配置校验要求每个标签都有映射）
 - **新增功能模块**：在 `src/renderer/features/` 新建一个 `(ctx: AppContext) => void`，在 `main.ts` 的 `FEATURES` 里加上。
   需要右键菜单就 `ctx.menu.register(MENU_ORDER.xxx, () => [...])`；和别的模块交互用 `ctx.bus` 的事件（新事件先加到 `AppEvents`）。
@@ -161,7 +189,8 @@ server/
 - **新增 IPC 通道**：只改 `src/shared/ipc.ts`（契约 + `DESK_API`），然后 TypeScript 会提示 `src/main/ipc.ts` 缺哪个处理函数。
 - **新增 / 修改角色**：在 `client/assets/live2d/<角色>/` 放模型和 `deskmate.json`（台词、触摸区域、闲置活动、换装、运势、问候、提醒），
   字段和校验见 `src/renderer/character/config.ts`；`npm test` 会校验所有角色目录下的配置。
-- **新增后端接口**：在 `server/app.py` 里用 `Depends(require_token)` 加鉴权和限流，Pydantic 模型限制输入长度，并在 `server/tests/` 加测试。
+- **新增后端接口**：在 `server/deskmate_server/routes/` 新建一个 `APIRouter` 模块并加进 `routes/__init__.py` 的 `ROUTERS`；
+  参数里写 `_: ChatAuth` 就带上鉴权和限流，请求体放 `schemas.py` 用 Pydantic 限制长度，配置从 `request.app.state.settings` 取；在 `server/tests/` 加测试。
 - **新增配置项**：后端加到 `.env.example`；客户端设置的类型在 `src/shared/types.ts`，默认值和迁移在 `src/main/settings.ts`，
   设置面板在 `index.html` + `features/settings-panel.ts`。
 

@@ -1,4 +1,4 @@
-// 与 server/app.py 的 DEFAULT_PERSONA / REPLY_RULES / MEMORY_* 保持一致（「自己的 API Key」模式在客户端拼系统提示词）
+// 与 server/deskmate_server/persona.py 的 DEFAULT_PERSONA / REPLY_RULES / MEMORY_* 保持一致（test/config.test.ts 校验）（「自己的 API Key」模式在客户端拼系统提示词）
 import { EMOTION_TAGS } from '../../shared/emotions';
 import type { ChatMessage } from '../../shared/types';
 

@@ -23,10 +23,16 @@ cd server
 python -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt
 copy .env.example .env      # 修改 ACCESS_TOKENS、OLLAMA_MODEL
-.\.venv\Scripts\python app.py
+.\.venv\Scripts\python app.py   # 或 .\.venv\Scripts\python -m deskmate_server，两者等价
 ```
 
 浏览器打开 http://127.0.0.1:8000/health 应看到 `"ollama": true`。
+
+- 代码在 `server/deskmate_server/` 包里，`app.py` 只是兼容入口，原来的启动方式不变。
+- `.env` 启动时会校验（数字项填错、端口越界等会直接报出是哪一项）。
+- 控制台每个请求一行日志：`request_id`、路径、状态码、耗时（ms）、令牌**标签**（如 `token-1`，从不打印令牌本身）；
+  `.env` 里 `LOG_FORMAT=json` 可改成 JSON 行。响应头带 `X-Request-ID`，排查问题时让朋友报这个 id 即可。
+- 拉新代码后先 `.\.venv\Scripts\pip install -r requirements.txt` 再重启（依赖版本已锁定，见 CONTRIBUTING）。
 
 ## 2. 花生壳内网穿透
 
@@ -92,12 +98,11 @@ npm run dist       # 构建 + 打包成 exe，输出在 client/dist（便携版 
 `happy sad angry surprised relaxed thinking wave neutral`，以及
 `shy`（爱心眼 + 冒爱心 + 心跳 + 脸红）、`love`、`cry`（大哭）、`confused`（呆呆眼 + 问号）、`dizzy`（晕晕）、
 `speechless`（阴暗 + 吐魂）、`proud`、`sleepy`（闭眼口水）。
-默认人设在 `server/app.py` 的 `DEFAULT_PERSONA`（API Key 模式用 `client/src/renderer/lib/persona.ts` 里的同一份），
-情绪标签规则在 `REPLY_RULES`；用户在设置里填的人设只替换人设部分。改标签时先改 `shared/emotion-tags.json`
-（客户端自动跟随），再同步 `server/stream_filter.py` 的 `EMOTIONS` 和 `server/app.py` 的 `REPLY_RULES`，两边测试会检查一致性。
+默认人设在 `server/deskmate_server/persona.py` 的 `DEFAULT_PERSONA`（API Key 模式用 `client/src/renderer/lib/persona.ts` 里的同一份，测试会检查两边一致），
+情绪标签规则在 `REPLY_RULES`；用户在设置里填的人设只替换人设部分。改标签只需改 `shared/emotion-tags.json`，客户端和服务器都直接读取它。
 
 服务器的朗读接口需要能访问外网（微软语音服务），相关配置见 `server/.env.example` 里的 `TTS_*`；
-已有的 `server/.venv` 升级后记得重新 `pip install -r requirements.txt`（新增 `edge-tts`）。
+已有的 `server/.venv` 每次拉取新代码后记得重新 `pip install -r requirements.txt`（依赖版本已锁定）。
 
 ## 参与开发
 

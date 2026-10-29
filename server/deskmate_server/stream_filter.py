@@ -6,25 +6,9 @@
 
 import re
 
-# 与仓库根目录 shared/emotion-tags.json 保持一致（tests/test_emotion_tags.py 会校验）
-EMOTIONS = {
-    "neutral",
-    "happy",
-    "sad",
-    "angry",
-    "surprised",
-    "relaxed",
-    "thinking",
-    "wave",
-    "shy",
-    "love",
-    "cry",
-    "confused",
-    "dizzy",
-    "speechless",
-    "proud",
-    "sleepy",
-}
+from .persona import EMOTION_TAGS
+
+EMOTIONS = frozenset(EMOTION_TAGS)
 
 _OPEN = "<think>"
 _CLOSE = "</think>"
