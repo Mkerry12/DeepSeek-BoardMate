@@ -1,4 +1,4 @@
-// server/stream_filter.py 的 TS 版：去掉 <think>…</think>，解析回复开头的 [emotion] 标签
+// server/deskmate_server/stream_filter.py 的 TS 版：去掉 <think>…</think>，解析回复开头的 [emotion] 标签
 import { EMOTION_TAGS } from '../../shared/emotions';
 import type { ChatEvent } from '../../shared/types';
 

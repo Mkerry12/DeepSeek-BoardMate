@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { INTERNAL_EMOTIONS, validateConfig } from '../src/renderer/character/config';
-import { REPLY_RULES } from '../src/renderer/lib/persona';
+import { DEFAULT_PERSONA, MEMORY_PROMPT, REPLY_RULES } from '../src/renderer/lib/persona';
 import { StreamFilter } from '../src/renderer/lib/stream-filter';
 import { EMOTION_TAGS, STATE_TAGS } from '../src/shared/emotions';
 import { character, rawCharacter } from './helpers';
@@ -80,17 +80,17 @@ describe('emotion tags stay consistent with the server', () => {
     expect(EMOTION_TAGS).toEqual(shared.tags);
   });
 
-  it('server REPLY_RULES lists exactly the shared tags, in order', () => {
-    const app = fs.readFileSync(path.join(serverRoot, 'app.py'), 'utf8');
-    const line = app.split('\n').find((l) => l.includes('只能是以下之一'))!;
-    expect([...line.matchAll(/\[([a-z_]+)\]/g)].map((m) => m[1])).toEqual(shared.tags);
-  });
-
-  it('server stream_filter.EMOTIONS has the same set', () => {
-    const src = fs.readFileSync(path.join(serverRoot, 'stream_filter.py'), 'utf8');
-    const block = src.slice(src.indexOf('EMOTIONS = {'), src.indexOf('}', src.indexOf('EMOTIONS = {')));
-    const tags = [...block.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
-    expect(new Set(tags)).toEqual(new Set(shared.tags));
+  it('server prompt text matches the client copy (tags themselves come from the shared file)', () => {
+    const src = fs.readFileSync(path.join(serverRoot, 'deskmate_server', 'persona.py'), 'utf8').replace(/\r/g, '');
+    expect(src).toContain('emotion-tags.json');
+    expect(src).toContain(DEFAULT_PERSONA);
+    expect(src).toContain(MEMORY_PROMPT);
+    const start = src.indexOf('REPLY_RULES = f"""') + 'REPLY_RULES = f"""'.length;
+    const serverRules = src.slice(start, src.indexOf('"""', start));
+    const clientRules = REPLY_RULES.split('\n');
+    expect(serverRules.split('\n').filter((l) => !l.includes('只能是以下之一'))).toEqual(
+      clientRules.filter((l) => !l.includes('只能是以下之一')),
+    );
   });
 
   it('client REPLY_RULES lists every tag', () => {

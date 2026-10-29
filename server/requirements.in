@@ -1,0 +1,7 @@
+# 直接依赖（宽松版本）。改完后重新生成锁定的 requirements.txt：
+#   uv pip compile requirements.in --universal --python-version 3.10 -o requirements.txt
+fastapi>=0.147.0
+uvicorn[standard]>=0.54.0
+httpx>=0.28.1
+pydantic-settings>=2.6
+edge-tts>=7.3.1
