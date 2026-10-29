@@ -10,7 +10,7 @@
 
 
 ```
-朋友的 exe ──HTTPS──> 花生壳域名 ──> server (FastAPI :8000) ──> Ollama 127.0.0.1:11434
+exe ──HTTPS──> 花生壳域名 ──> server (FastAPI :8000) ──> Ollama 127.0.0.1:11434 -->GPT-SoVITS
 ```
 
 - `client/`：Electron + pixi.js + Live2D，透明置顶窗口，动作、表情、口型、对话气泡
