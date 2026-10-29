@@ -28,13 +28,11 @@ class Settings(BaseSettings):
     max_input_chars: int = Field(default=1000, ge=1)
     max_persona_chars: int = Field(default=1000, ge=1)
     memory_max_chars: int = Field(default=500, ge=0)
-    tts_voice: str = "zh-CN-XiaoyiNeural"
+    # 朗读只用本机 GPT-SoVITS（api_v2）；没配置 / 连不上时 /tts 返回 503，客户端不出声。
+    # 旧版的 TTS_PROVIDER / TTS_FALLBACK / TTS_VOICE 已废弃，留在 .env 里也会被忽略。
+    tts_enabled: bool = True
     tts_max_chars: int = Field(default=300, ge=1)
     tts_rate_per_min: int = Field(default=90, ge=1)
-    # 语音合成：edge（微软 Edge 在线语音）或 gpt_sovits（本机 GPT-SoVITS api_v2）
-    tts_provider: Literal["edge", "gpt_sovits"] = "edge"
-    # GPT-SoVITS 不可用时：edge = 改用 Edge 语音，none = 直接报错
-    tts_fallback: Literal["edge", "none"] = "edge"
     gsv_url: str = "http://127.0.0.1:9880"
     # 音色预设文件（JSON，相对路径以 server/ 为基准），格式见 server/voices.example.json
     gsv_voices_file: Path = Field(default=Path("data/voices.json"), validate_default=True)
@@ -50,7 +48,7 @@ class Settings(BaseSettings):
     gsv_timeout: float = Field(default=120, ge=5)
     # 单次发给 GPT-SoVITS 的最多字数，更长的按句切开、依次合成后拼接
     gsv_max_chars: int = Field(default=80, ge=10, le=300)
-    # 排队等待合成的最多句数（单卡串行），超出时按 TTS_FALLBACK 处理
+    # 排队等待合成的最多句数（单卡串行），超出的句子直接不读
     gsv_max_queue: int = Field(default=8, ge=1)
     # 启动后在后台先合成一句，免得第一句话等 20 秒
     gsv_warmup: bool = True
@@ -68,11 +66,10 @@ class Settings(BaseSettings):
     def _strip_slash(cls, v: str) -> str:
         return v.rstrip("/")
 
-    @field_validator("tts_provider", "tts_fallback", "gsv_media_type", mode="before")
+    @field_validator("gsv_media_type", mode="before")
     @classmethod
     def _lower(cls, v):
-        v = v.strip().lower() if isinstance(v, str) else v
-        return {"gsv": "gpt_sovits", "gpt-sovits": "gpt_sovits"}.get(v, v)
+        return v.strip().lower() if isinstance(v, str) else v
 
     @field_validator("db_path", "gsv_voices_file")
     @classmethod

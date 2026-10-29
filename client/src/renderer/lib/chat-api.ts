@@ -178,7 +178,7 @@ export interface ServerVoices {
   voices: { id: string; label: string }[];
 }
 
-// 服务器当前语音提供方的音色（Edge 或 GPT-SoVITS 预设）；旧服务器没有这个接口时返回 null
+// 服务器上的 GPT-SoVITS 音色预设（没开语音时是空列表）；旧服务器没有这个接口时返回 null
 export async function fetchVoices(
   settings: Pick<ConnSettings, 'serverUrl' | 'officialServerUrl' | 'token'>,
 ): Promise<ServerVoices | null> {
@@ -192,38 +192,42 @@ export async function fetchVoices(
   }
 }
 
-const EDGE_VOICE_RE = /^[a-z]{2,3}-[A-Z]{2}(-[a-z]+)?-[A-Za-z]+Neural$/;
-export const DEFAULT_EDGE_VOICE = 'zh-CN-XiaoyiNeural';
+export const VOICE_NEEDS_SERVER = '语音需要连接官方服务器（GPT-SoVITS）';
+export const VOICE_OFF = '语音服务未开启';
 
-/** 客户端直连 Edge 时只能用 Edge 音色；选的是服务器的 GPT-SoVITS 音色时换成默认音色 */
-export function edgeVoice(voice: string): string {
-  return EDGE_VOICE_RE.test(voice) ? voice : DEFAULT_EDGE_VOICE;
+/** 朗读只有一条路：官方模式下服务器的 GPT-SoVITS；API Key 模式没有语音 */
+export function voiceSupported(settings: Pick<ConnSettings, 'mode'>): boolean {
+  return settings.mode !== 'apikey';
 }
 
-// 朗读：官方模式走服务器 /tts（朋友也能用），否则或服务器不支持时由主进程直连微软 Edge 语音。
-// 服务器返回的音频格式随提供方不同（Edge 是 mp3，GPT-SoVITS 是 wav / ogg），播放端 decodeAudioData 都能解
+// 设置面板的语音提示用：服务器的 GPT-SoVITS 能不能用；连不上服务器 / 旧服务器不报这一项时返回 null
+export async function fetchVoiceReady(
+  settings: Pick<ConnSettings, 'serverUrl' | 'officialServerUrl'>,
+): Promise<boolean | null> {
+  try {
+    const health = (await (await fetch(`${serverBase(settings)}/health`)).json()) as { gsv?: boolean | null };
+    return typeof health.gsv === 'boolean' ? health.gsv : null;
+  } catch {
+    return null;
+  }
+}
+
+// 朗读：服务器 /tts（GPT-SoVITS，返回 wav / ogg，播放端 decodeAudioData 能直接解）。
+// 服务器没开语音或 GPT-SoVITS 不可用时返回 503，调用方就不出声
 export async function synthSpeech(
   settings: ConnSettings,
   text: string,
   voice: string,
   signal?: AbortSignal,
 ): Promise<ArrayBuffer> {
-  if (settings.mode !== 'apikey') {
-    try {
-      const res = await request(`${serverBase(settings)}/tts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...bearer(settings.token) },
-        body: JSON.stringify({ text, voice }),
-        signal,
-      });
-      return await res.arrayBuffer();
-    } catch (err) {
-      const status = (err as ChatError).status;
-      if (signal?.aborted || status === 401 || status === 429) throw err;
-    }
-  }
-  const bytes = await window.desk.tts(text, edgeVoice(voice));
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  if (!voiceSupported(settings)) throw httpError(503, VOICE_NEEDS_SERVER);
+  const res = await request(`${serverBase(settings)}/tts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...bearer(settings.token) },
+    body: JSON.stringify({ text, voice }),
+    signal,
+  });
+  return await res.arrayBuffer();
 }
 
 // 测试连接：返回一组 { text, ok } 状态，official 模式顺便带回服务器上的模型列表
@@ -235,7 +239,6 @@ export async function checkConnection(
   const health = (await fetch(`${base}/health`).then((r) => r.json())) as {
     ollama?: boolean;
     model?: string;
-    tts_provider?: string;
     gsv?: boolean | null;
   };
   const auth = await fetch(`${base}/auth-check`, { headers: bearer(settings.token) });
@@ -244,9 +247,7 @@ export async function checkConnection(
     { text: health.ollama ? `Ollama · ${health.model}` : 'Ollama 未运行', ok: !!health.ollama },
     { text: auth.ok ? '令牌有效' : '令牌无效', ok: auth.ok },
   ];
-  if (health.tts_provider === 'gpt_sovits') {
-    chips.push({ text: health.gsv ? 'GPT-SoVITS 语音' : 'GPT-SoVITS 未运行', ok: !!health.gsv });
-  }
+  if (typeof health.gsv === 'boolean') chips.push({ text: health.gsv ? 'GPT-SoVITS 语音' : VOICE_OFF, ok: health.gsv });
   return { chips, models: auth.ok && health.ollama ? await fetchModels(settings).catch(() => null) : null };
 }
 

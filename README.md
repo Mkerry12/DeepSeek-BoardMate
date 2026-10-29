@@ -14,7 +14,7 @@
 ```
 
 - `client/`：Electron + pixi.js + Live2D，透明置顶窗口，动作、表情、口型、对话气泡
-- `server/`：令牌鉴权、限流、人设、过滤 `<think>`、解析情绪标签，SSE 流式返回；朗读支持 Edge 语音和本机 GPT-SoVITS
+- `server/`：令牌鉴权、限流、人设、过滤 `<think>`、解析情绪标签，SSE 流式返回；朗读只用本机 GPT-SoVITS（没开就不出声）
 
 ## 文档
 
@@ -26,21 +26,22 @@
 ## 0. 一键部署（拉取代码后推荐）
 
 脚本会检查 Python 3.10+ / Node 20+ / Ollama，拉取模型，建好 `server/.venv`，从 `.env.example` 生成 `server/.env`
-并创建第一个访问令牌（**只显示一次**），可选配置 GPT-SoVITS，下载 Cubism Core，构建客户端并启动。可以重复运行，已有的 `.env` 会保留。
+并创建第一个访问令牌（**只显示一次**），可选配置 GPT-SoVITS 语音（唯一的语音，跳过 = 不出声），下载 Cubism Core，构建客户端并启动。
+可以重复运行，已有的 `.env` 会保留（旧版的 `TTS_PROVIDER` / `TTS_FALLBACK` / `TTS_VOICE` 会被删掉）。
 
 ```powershell
 # Windows（在仓库根目录）
 powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1                 # 交互式
-powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Yes            # 全部默认（Edge 语音），不提问
+powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Yes            # 全部默认，不提问（不配语音 = 不出声）
 powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Yes -Docker    # 后端用 Docker 运行
-powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Tts gpt_sovits -GsvRefAudio 'D:\refs\voice.wav' -GsvPromptText '参考音频里的原话'
+powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -GsvRefAudio 'D:\refs\voice.wav' -GsvPromptText '参考音频里的原话'
 ```
 
 ```bash
 # macOS / Linux（默认只部署后端，--client 同时构建客户端）
 bash scripts/deploy.sh             # 交互式
 bash scripts/deploy.sh --yes       # 全部默认
-bash scripts/deploy.sh --yes --docker --tts gpt_sovits --gsv-ref-audio /data/refs/voice.wav --gsv-prompt-text '参考音频里的原话'
+bash scripts/deploy.sh --yes --docker --gsv-ref-audio /data/refs/voice.wav --gsv-prompt-text '参考音频里的原话'
 ```
 
 其他参数：`-Model`（Ollama 模型）、`-SkipOllama`、`-NoClient`、`-NoStart`、`-StartClient`、`-ServerUrl`（构建进客户端的默认服务器地址，默认本机后端），
@@ -179,9 +180,10 @@ npm run dist       # 构建 + 打包成 exe，输出在 client/dist（便携版 
 - **边聊边记**：回答时她拿笔在小本本上写；回复超过 150 字会把小鲸鱼放到桌上，说完放回头顶；回答失败或没话说会吐魂。
 - **今日运势**：右键「今日运势」，掏出手机翻开看一眼，同一天结果固定。
 - **语音朗读**（默认关）：右键「语音朗读」或设置里「朗读回复」开关，可选音色。
-  官方模式走服务器 `POST /tts`：服务器默认用微软 Edge 神经网络语音，也可以换成主人电脑上的 **GPT-SoVITS 自定义音色**
-  （`TTS_PROVIDER=gpt_sovits`，不可用时自动退回 Edge；设置里的音色列表会显示服务器上的音色，见 [doc/gpt-sovits.md](doc/gpt-sovits.md)）。
-  API Key 模式（或服务器不可用时）由客户端主进程直连 Edge 语音；都失败才退回 Windows 自带语音。
+  语音**只有一种**：官方模式下服务器 `POST /tts` 转给主人电脑上的 **GPT-SoVITS 自定义音色**
+  （设置里的音色列表就是服务器上配置的音色，见 [doc/gpt-sovits.md](doc/gpt-sovits.md)）。
+  服务器没配 GPT-SoVITS、GPT-SoVITS 没启动或出错时**不出声**（嘴巴照常动），没有任何备用语音；设置的语音一栏会提示「语音服务未开启」。
+  API Key 模式没有语音：朗读开关是灰的，提示「语音需要连接官方服务器（GPT-SoVITS）」。
   试听 GPT-SoVITS 效果（示例为 AI 合成语音）：[满穗-说话-定版示例.mp3](doc/audio/满穗-说话-定版示例.mp3)、[满穗-新版-new-1.mp3](doc/audio/满穗-新版-new-1.mp3)。
   边输出边一句句地读，口型跟着音量动；按停止 / Esc / 发新消息 / 关掉开关会立刻停。「提示音」开关控制完成、失败、提醒的小音效（来自 `pet.json` 的 sounds）。
   设置里的「音量」滑块（默认 80%）同时管朗读和提示音，拖动时正在读的语音立刻跟着变，松手会响一声试听；调小声口型照样动。
@@ -200,8 +202,8 @@ npm run dist       # 构建 + 打包成 exe，输出在 client/dist（便携版 
 默认人设在 `server/deskmate_server/persona.py` 的 `DEFAULT_PERSONA`（API Key 模式用 `client/src/renderer/lib/persona.ts` 里的同一份，测试会检查两边一致），
 情绪标签规则在 `REPLY_RULES`；用户在设置里填的人设只替换人设部分。改标签只需改 `shared/emotion-tags.json`，客户端和服务器都直接读取它。
 
-服务器的朗读接口用 Edge 语音时需要能访问外网（微软语音服务），用 GPT-SoVITS 时需要本机跑着 GPT-SoVITS api_v2，
-相关配置见 `server/.env.example` 里的 `TTS_*` 和 `GSV_*`；
+服务器的朗读接口需要本机跑着 GPT-SoVITS api_v2 并配好音色，否则 `/tts` 返回 503、桌宠不出声；
+相关配置见 `server/.env.example` 里的 `TTS_*` 和 `GSV_*`（`TTS_ENABLED=false` 可整体关掉朗读）；
 已有的 `server/.venv` 每次拉取新代码后记得重新 `pip install -r requirements.txt`（依赖版本已锁定）。
 
 ## 参与开发

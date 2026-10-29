@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 
 from deskmate_server import persona
 from deskmate_server.main import create_app
-from deskmate_server.tts import edge as tts_route
 from tests.conftest import AUTH, make_settings
 
 # good-token 是 ACCESS_TOKENS 里的第一个，限流按令牌 id 分桶
@@ -273,73 +272,3 @@ def test_memory_endpoint_strips_think_and_handles_empty(client):
     route.mock(return_value=httpx.Response(200, json={"message": {"content": "（暂无）"}}))
     r = client.post("/memory", headers=AUTH, json={"messages": [user_msg()]})
     assert r.json() == {"memory": ""}
-
-
-# ---------- /tts ----------
-
-
-class FakeCommunicate:
-    calls: list[tuple[str, str]] = []
-
-    def __init__(self, text, voice):
-        FakeCommunicate.calls.append((text, voice))
-
-    async def stream(self):
-        yield {"type": "WordBoundary"}
-        yield {"type": "audio", "data": b"ID3"}
-        yield {"type": "audio", "data": b"mp3"}
-
-
-@pytest.fixture
-def fake_tts(monkeypatch):
-    FakeCommunicate.calls = []
-    monkeypatch.setattr(tts_route.edge_tts, "Communicate", FakeCommunicate)
-    return FakeCommunicate
-
-
-def test_tts_returns_audio(client, settings, fake_tts):
-    r = client.post("/tts", headers=AUTH, json={"text": "  你好  "})
-    assert r.status_code == 200
-    assert r.headers["content-type"] == "audio/mpeg"
-    assert r.content == b"ID3mp3"
-    assert fake_tts.calls == [("你好", settings.tts_voice)]
-
-
-def test_tts_truncates_long_text(client, settings, fake_tts):
-    client.post("/tts", headers=AUTH, json={"text": "读" * 1000})
-    assert fake_tts.calls[0][0] == "读" * settings.tts_max_chars
-
-
-@pytest.mark.parametrize("text", ["", "x" * 4001])
-def test_tts_text_length_validation(client, fake_tts, text):
-    assert client.post("/tts", headers=AUTH, json={"text": text}).status_code == 422
-    assert fake_tts.calls == []
-
-
-@pytest.mark.parametrize(
-    "voice", ["zh-CN-XiaoxiaoNeural", "en-US-AriaNeural", "zh-CN-liaoning-XiaobeiNeural"]
-)
-def test_tts_accepts_valid_voices(client, fake_tts, voice):
-    assert client.post("/tts", headers=AUTH, json={"text": "hi", "voice": voice}).status_code == 200
-
-
-@pytest.mark.parametrize("voice", ["bad", "zh-CN-Xiaoxiao", "../../etc"])
-def test_tts_rejects_bad_voice(client, fake_tts, voice):
-    r = client.post("/tts", headers=AUTH, json={"text": "hi", "voice": voice})
-    assert r.status_code == 400
-    assert fake_tts.calls == []
-
-
-def test_tts_requires_auth(client, fake_tts):
-    assert client.post("/tts", json={"text": "hi"}).status_code == 401
-
-
-def test_tts_upstream_failure(client, monkeypatch):
-    class Broken(FakeCommunicate):
-        async def stream(self):
-            raise RuntimeError("network")
-            yield  # pragma: no cover
-
-    monkeypatch.setattr(tts_route.edge_tts, "Communicate", Broken)
-    r = client.post("/tts", headers=AUTH, json={"text": "hi"})
-    assert r.status_code == 502

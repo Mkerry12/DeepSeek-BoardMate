@@ -5,7 +5,7 @@ import { buildDefines } from './build-env';
 const root = __dirname;
 
 export default defineConfig({
-  // 主进程 / preload：dependencies（msedge-tts、electron-updater）不打包，由 electron-builder 放进 app.asar 的 node_modules
+  // 主进程 / preload：dependencies（electron-updater）不打包，由 electron-builder 放进 app.asar 的 node_modules
   main: {
     // 官方服务器地址：构建时读环境变量 DESKMATE_SERVER_URL（见 build-env.ts）
     define: buildDefines(),

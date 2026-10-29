@@ -7,6 +7,8 @@ export interface MenuItem {
   icon?: MenuIcon;
   hint?: string;
   checked?: boolean;
+  /** 灰掉、点不了（hint 里写原因） */
+  disabled?: boolean;
   /** 返回子菜单项 */
   submenu?: () => MenuEntry[] | Promise<MenuEntry[]>;
   action?: () => unknown;
@@ -106,6 +108,7 @@ export function createMenu(el: HTMLElement, { onToggle }: { onToggle: (open: boo
     }
     if (item.checked !== undefined) btn.append(icon(item.checked && 'check', 'menu-check'));
     if (item.submenu) btn.append(icon('next', 'menu-arrow'));
+    btn.disabled = !!item.disabled;
     btn.addEventListener('click', () => activate(item));
     return btn;
   }

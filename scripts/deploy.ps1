@@ -1,31 +1,30 @@
 ﻿<#
 .SYNOPSIS
-  DeepSeek DeskMate 一键部署（Windows）：检查环境 → 拉模型 → 装后端 → 生成令牌 → 可选配置 GPT-SoVITS → 构建客户端 → 启动。
+  DeepSeek DeskMate 一键部署（Windows）：检查环境 → 拉模型 → 装后端 → 生成令牌 → 可选配置 GPT-SoVITS 语音 → 构建客户端 → 启动。
+  语音只有本机 GPT-SoVITS 一种；跳过这一步桌宠就不出声（其他功能不受影响）。
 
 .EXAMPLE
   # 交互式（推荐第一次用）
   powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1
 
 .EXAMPLE
-  # 全自动：Edge 语音、不问问题
+  # 全自动、不问问题（没给 -GsvRefAudio 也没有 server/data/voices.json 时不朗读）
   powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Yes
 
 .EXAMPLE
-  # 全自动 + 本机 GPT-SoVITS + 用 Docker 跑后端
-  powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Yes -Docker -Tts gpt_sovits `
+  # 全自动 + 本机 GPT-SoVITS 语音 + 用 Docker 跑后端
+  powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Yes -Docker `
     -GsvRefAudio 'D:\GPT-SoVITS\refs\voice.wav' -GsvPromptText '参考音频里说的那句话'
 #>
 [CmdletBinding()]
 param(
     # 不提问，全部用默认值 / 命令行参数
     [switch]$Yes,
-    # 语音合成方式：edge 或 gpt_sovits；不填时交互式询问（-Yes 时为 edge）
-    [ValidateSet('', 'edge', 'gpt_sovits')]
-    [string]$Tts = '',
     # 用 docker compose 运行后端，而不是本机 Python venv
     [switch]$Docker,
     # Ollama 模型；不填时用 server/.env 里的 OLLAMA_MODEL（默认 deepseek-r1:8b）
     [string]$Model = '',
+    # GPT-SoVITS 语音（可选）：地址、参考音频（GPT-SoVITS 那台机器上的路径）、参考音频里的那句话和语言
     [string]$GsvUrl = 'http://127.0.0.1:9880',
     [string]$GsvRefAudio = '',
     [string]$GsvPromptText = '',
@@ -90,6 +89,18 @@ function Set-EnvValue([string]$key, [string]$value) {
     }
     if (-not $found) { $lines.Add("$key=$value") }
     [System.IO.File]::WriteAllLines($EnvFile, $lines, $Utf8NoBom)
+}
+
+# 删掉 server/.env 里已经废弃的项（留着也没事，后端会忽略）
+function Remove-EnvKeys([string[]]$keys) {
+    if (-not (Test-Path $EnvFile)) { return }
+    $pattern = '^\s*(' + ($keys -join '|') + ')\s*='
+    $lines = [System.IO.File]::ReadAllLines($EnvFile, $Utf8NoBom)
+    $kept = @($lines | Where-Object { $_ -notmatch $pattern })
+    if ($kept.Count -ne $lines.Count) {
+        [System.IO.File]::WriteAllLines($EnvFile, [string[]]$kept, $Utf8NoBom)
+        Ok ('已从 server/.env 删掉废弃的 ' + ($keys -join ' / '))
+    }
 }
 
 function Find-Python {
@@ -191,45 +202,43 @@ if (-not $SkipOllama) {
     }
 }
 
-# ---------------------------------------------------------------- 4. 语音合成
-Step '语音合成'
-if (-not $Tts) {
-    $current = Get-EnvValue 'TTS_PROVIDER'
-    if ($Yes -or ($current -and -not $newEnv)) { $Tts = if ($current) { $current } else { 'edge' } }
-    else {
-        Write-Host '    edge       = 微软 Edge 在线语音（默认，不占显卡）'
-        Write-Host '    gpt_sovits = 本机 GPT-SoVITS 自定义音色（需要先装好并启动，见 doc/gpt-sovits.md）'
-        $Tts = Ask '选择语音合成方式 edge / gpt_sovits' 'edge'
-    }
+# ---------------------------------------------------------------- 4. 语音（GPT-SoVITS，可选）
+Step '语音（GPT-SoVITS，可选）'
+Remove-EnvKeys @('TTS_PROVIDER', 'TTS_FALLBACK', 'TTS_VOICE')
+$voicesFile = Join-Path $Server 'data\voices.json'
+$hasVoice = (Test-Path $voicesFile) -or [bool](Get-EnvValue 'GSV_REF_AUDIO')
+if ($Yes) { $setupGsv = [bool]$GsvRefAudio -or $PSBoundParameters.ContainsKey('GsvUrl') }
+else {
+    Write-Host '    桌宠的语音只有本机 GPT-SoVITS 一种（需要先装好并启动，见 doc/gpt-sovits.md）；跳过 = 不出声'
+    $setupGsv = Confirm '配置 GPT-SoVITS 语音吗？' $hasVoice
 }
-if ($Tts -eq 'gpt_sovits') {
+if ($setupGsv) {
     $GsvUrl = Ask 'GPT-SoVITS 地址' $GsvUrl
     if (-not $GsvRefAudio) { $GsvRefAudio = Ask '参考音频路径（GPT-SoVITS 那台机器上的 3~10 秒 wav；已有 server/data/voices.json 可留空）' (Get-EnvValue 'GSV_REF_AUDIO') }
     if ($GsvRefAudio -and -not $GsvPromptText) { $GsvPromptText = Ask '参考音频里说的那句话（强烈建议填）' (Get-EnvValue 'GSV_PROMPT_TEXT') }
     if ($GsvRefAudio) { $GsvPromptLang = Ask '参考音频语言 zh/en/ja/ko/yue' $GsvPromptLang }
-    Set-EnvValue 'TTS_PROVIDER' 'gpt_sovits'
-    Set-EnvValue 'TTS_FALLBACK' 'edge'
     Set-EnvValue 'GSV_URL' $GsvUrl
     if ($GsvRefAudio) {
         Set-EnvValue 'GSV_REF_AUDIO' $GsvRefAudio
         Set-EnvValue 'GSV_PROMPT_TEXT' $GsvPromptText
         Set-EnvValue 'GSV_PROMPT_LANG' $GsvPromptLang
+        $hasVoice = $true
     }
-    $voicesFile = Join-Path $Server 'data\voices.json'
-    if (-not $GsvRefAudio -and -not (Test-Path $voicesFile)) {
-        Warn '既没填参考音频，也没有 server/data/voices.json：GPT-SoVITS 没有可用音色，会一直用 Edge 兜底'
+    if (-not $hasVoice) {
+        Warn '既没填参考音频，也没有 server/data/voices.json：没有可用音色，桌宠不会出声'
         Warn '照 server/voices.example.json 写一份 server/data/voices.json 后重启后端即可'
     }
     if (Test-Url "$GsvUrl/control") { Ok "GPT-SoVITS 在线：$GsvUrl" }
-    else { Warn "连不上 $GsvUrl（还没启动？）。后端照样能用，GPT-SoVITS 起来之前用 Edge 语音兜底" }
+    else { Warn "连不上 $GsvUrl（还没启动？）。后端照样能用，GPT-SoVITS 起来之前桌宠不出声" }
     if ($Docker -and $GsvUrl -match '127\.0\.0\.1|localhost') {
         Ok '容器里会自动改用 http://host.docker.internal:9880 访问宿主机上的 GPT-SoVITS'
     } elseif ($Docker) {
         $env:DESKMATE_GSV_URL = $GsvUrl
     }
+} elseif ($hasVoice) {
+    Ok '沿用已有的 GPT-SoVITS 音色配置'
 } else {
-    Set-EnvValue 'TTS_PROVIDER' 'edge'
-    Ok '使用 Edge 语音'
+    Ok '跳过语音：桌宠不出声（以后照 doc/gpt-sovits.md 配好再重新运行本脚本即可）'
 }
 
 # ---------------------------------------------------------------- 5. 后端
@@ -282,7 +291,8 @@ if ($Docker) {
 if ($Docker -or -not $NoStart) {
     $health = Wait-Health $healthUrl 30
     if ($health) {
-        Ok "后端已启动：$healthUrl（ollama=$($health.ollama)，语音=$($health.tts_provider)）"
+        $voiceState = if ($health.gsv) { "GPT-SoVITS（$($health.tts)）" } else { '未开启' }
+        Ok "后端已启动：$healthUrl（ollama=$($health.ollama)，语音=$voiceState）"
     } else { Warn "后端 30 秒内没响应，看看后端窗口里的报错（或 docker compose logs server）" }
 }
 

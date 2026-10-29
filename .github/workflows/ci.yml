@@ -29,7 +29,7 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: client/package-lock.json
-      # 依赖的安装脚本（electron 下载二进制、msedge-tts 的 only-allow pnpm）在这里都用不到
+      # 依赖的安装脚本（electron 下载二进制）在这里用不到
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm run lint
