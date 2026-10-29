@@ -10,6 +10,7 @@ export interface SettingsFormElements extends HTMLFormElement {
   token: HTMLInputElement;
   serverUrl: HTMLInputElement;
   apiKey: HTMLInputElement;
+  voiceToken: HTMLInputElement;
   apiBase: HTMLInputElement;
   apiModelName: HTMLInputElement;
   persona: HTMLTextAreaElement;

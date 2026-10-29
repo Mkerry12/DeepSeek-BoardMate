@@ -192,12 +192,12 @@ export async function fetchVoices(
   }
 }
 
-export const VOICE_NEEDS_SERVER = '语音需要连接官方服务器（GPT-SoVITS）';
+export const VOICE_NEEDS_SERVER = '填上访问令牌才有语音（服务器的 GPT-SoVITS）';
 export const VOICE_OFF = '语音服务未开启';
 
-/** 朗读只有一条路：官方模式下服务器的 GPT-SoVITS；API Key 模式没有语音 */
-export function voiceSupported(settings: Pick<ConnSettings, 'mode'>): boolean {
-  return settings.mode !== 'apikey';
+/** 朗读只有一条路：服务器的 GPT-SoVITS。API Key 模式聊天直连接口，填了访问令牌时语音照样走服务器 */
+export function voiceSupported(settings: Pick<ConnSettings, 'mode' | 'token'>): boolean {
+  return settings.mode !== 'apikey' || !!settings.token?.trim();
 }
 
 // 设置面板的语音提示用：服务器的 GPT-SoVITS 能不能用；连不上服务器 / 旧服务器不报这一项时返回 null

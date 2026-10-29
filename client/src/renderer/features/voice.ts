@@ -1,4 +1,4 @@
-// 朗读：跟着对话流式朗读、出错 / 停止时闭嘴、菜单里的「语音朗读」开关（API Key 模式没有语音，开关灰掉）
+// 朗读：跟着对话流式朗读、出错 / 停止时闭嘴、菜单里的「语音朗读」开关（API Key 模式没填访问令牌就没有语音，开关灰掉）
 import { MENU_ORDER, type Feature } from '../core/context';
 import { voiceSupported } from '../lib/chat-api';
 
@@ -38,6 +38,6 @@ export const voiceFeature: Feature = ({ bus, store, pet, bubble, voice, status, 
   menu.register(MENU_ORDER.voice, () => [
     voiceSupported(store.settings)
       ? { label: '语音朗读', icon: 'voice', checked: store.settings.voice.on, action: toggleVoice }
-      : { label: '语音朗读', icon: 'voice', hint: '需官方服务器', disabled: true },
+      : { label: '语音朗读', icon: 'voice', hint: '需访问令牌', disabled: true },
   ]);
 };
