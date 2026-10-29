@@ -32,10 +32,16 @@ Invoke-WebRequest https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.
 npm run dev       # 开发：Vite 开发服务器 + 热更新（改渲染进程代码即时生效，改主进程会自动重启）
 npm run build     # 构建到 out/（main / preload / renderer 各自由 Vite 打包）
 npm start         # 运行 out/ 里的构建产物（接近打包后的行为）
-npm run dist      # build + electron-builder，输出 dist/ 下的便携版和安装包
+npm run dist      # build + electron-builder，输出 dist/ 下的便携版和安装包（--publish never，不上传）
 ```
 
 `vendor/` 是渲染进程的 public 目录：开发时 Cubism Core 由 Vite 提供，构建时复制到 `out/renderer/`。
+
+- 官方服务器默认地址由 `build-env.ts` 在构建时注入（`__DESKMATE_SERVER_URL__`），可用环境变量 `DESKMATE_SERVER_URL` 覆盖。
+- 发布：推送 `v*` 标签触发 `.github/workflows/release.yml`（标签须等于 `client/package.json` 的 version），
+  electron-builder 先建草稿 Release 上传安装版、便携版、`latest.yml`、blockmap，再生成更新说明并正式发布。
+- 自动更新逻辑：`src/main/updater.ts`（安装版用 electron-updater，便携版只查 GitHub 最新版本），
+  纯函数（版本比较、提示文案、菜单项）在 `src/shared/update.ts`，有单元测试。
 
 ### 后端（`server/`）
 
