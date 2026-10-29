@@ -17,6 +17,9 @@ export const chatFeature: Feature = (ctx) => {
   let settleTurn: (() => void) | null = null;
   let eraseArmedAt = 0;
   let whaleTimer: ReturnType<typeof setTimeout> | undefined;
+  let turn = 0;
+
+  const holdFor = (reply: string) => Math.max(6000, reply.length * 180);
 
   status.provide('replying', () => !!abortCtrl);
   status.provide('typing', () => !!chatInput.value);
@@ -92,6 +95,27 @@ export const chatFeature: Feature = (ctx) => {
     bubble.sayTyping();
 
     let reply = '';
+    let shown = '';
+    let ended = false;
+    const mine = ++turn;
+    // 朗读时文字跟着语音一句句出来，读完才开始计时收起；语音停了 / 不可用就立刻显示全文，接着照常流式显示
+    let voiced = voice.track({
+      show(text) {
+        if (mine !== turn || !voiced) return;
+        shown += text;
+        say(shown);
+      },
+      done() {
+        if (mine !== turn || !voiced) return;
+        voiced = false;
+        say(reply, holdFor(reply));
+      },
+      fail() {
+        if (mine !== turn || !voiced) return;
+        voiced = false;
+        if (reply) say(reply, ended ? holdFor(reply) : undefined);
+      },
+    });
     let settled = false;
     // 这一轮写进记录：有回复就存下，没有就撤掉刚才那条用户消息；只做一次
     const settle = () => {
@@ -116,11 +140,12 @@ export const chatFeature: Feature = (ctx) => {
             piece = piece.trimStart();
             if (!piece) continue;
             pet.setTalking(true);
+            if (voiced) bubble.sayTyping();
           }
           if (reply.length <= longReply.chars && reply.length + piece.length > longReply.chars) whaleToDesk(true);
           reply += piece;
           bus.emit('chat:delta', { text: piece, reply });
-          say(reply);
+          if (!voiced) say(reply);
         } else if (ev.type === 'error') {
           throw new Error(ev.message);
         }
@@ -129,10 +154,14 @@ export const chatFeature: Feature = (ctx) => {
       if (abortCtrl !== ctrl) return;
       settle();
       if (!reply) pet.react('soulout');
+      ended = true;
+      if (!reply) voiced = false;
       bus.emit('chat:end', { reply });
       flashProp('eraser');
-      say(reply || `（${character.name}没想好说什么…）`, Math.max(6000, reply.length * 180));
+      // 还在朗读：等最后一句读完（track 的 done）再显示全文、开始计时
+      if (!voiced) say(reply || `（${character.name}没想好说什么…）`, holdFor(reply));
     } catch (err) {
+      voiced = false;
       if (ctrl.signal.aborted) {
         if (abortCtrl !== ctrl) return;
         settle();
