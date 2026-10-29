@@ -161,6 +161,64 @@ GSV_TEXT_LANG=zh
 改完重启后端（`python app.py` 或 `docker compose up -d`），日志第一行会打印「语音合成：GPT-SoVITS @ …，音色：…」，
 `http://127.0.0.1:8000/health` 里应看到 `"tts": "小鲸", "gsv": true`。
 
+## 获取作者的满穗音色（无需训练）
+
+作者微调好的「满穗」音色（GPT-SoVITS **v2** 的 GPT / SoVITS 权重 + 参考音频 + 预设参数）放在**私有仓库**
+[Mkerry12/DeepSeek-BoardMate-voice](https://github.com/Mkerry12/DeepSeek-BoardMate-voice) 的 Release `manhui-v1` 里，
+只给受邀协作者用。拿到它就能在自己电脑上跑出和作者一模一样的声音，不用自己训练。
+
+> **只开发客户端的协作者什么都不用装**：客户端连作者的官方服务器（填作者发的令牌）就能听到满穗的声音。
+> 只有想在自己电脑上跑后端 + GPT-SoVITS 的人才需要下面这些。
+
+1. **找作者要权限**：把你的 GitHub 用户名发给作者，作者邀请你成为音色仓库的协作者；去邮件或
+   [github.com/notifications](https://github.com/notifications) 里接受邀请。
+2. **登录 GitHub CLI**（[安装 gh](https://cli.github.com/)），用被邀请的那个账号：
+
+   ```bash
+   gh auth login
+   ```
+
+3. **安装 GPT-SoVITS**（见第 1 步），版本要能加载 **v2** 权重（v2 / v2Pro / v3 / v4 的整合包都可以，v1 不行）。
+4. **在 DeskMate 仓库根目录运行下载脚本**，`-GsvDir` 指向 GPT-SoVITS 根目录（里面有 `api_v2.py` 和 `GPT_SoVITS` 文件夹）：
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\fetch-voice.ps1 -GsvDir 'D:\GPT-SoVITS'
+   ```
+
+   ```bash
+   bash scripts/fetch-voice.sh --gsv-dir ~/GPT-SoVITS
+   ```
+
+   也可以在一键部署里顺带做：`scripts\deploy.ps1 -FetchVoice -GsvDir 'D:\GPT-SoVITS'`（`deploy.sh --fetch-voice --gsv-dir …`），
+   或者在交互式部署的语音步骤里回答「下载作者共享的满穗音色」。
+
+   脚本会：用 `gh release download` 下载清单和附件（约 240 MB）→ 校验 sha256 →
+   权重复制到 `GPT_weights_v2/manhui-e20.ckpt`、`SoVITS_weights_v2/manhui_e20_s880.pth`（已有且一致就跳过）→
+   参考音频复制到 `server/data/voices/manhui-ref-371.wav` → 在 `server/data/voices.json` 里加上「满穗」预设并设为默认
+   （保留其他音色，旧文件备份成 `voices.json.bak`）→ GPT-SoVITS 正在运行就调用 `/set_gpt_weights`、`/set_sovits_weights` 直接切换权重。
+   没权限时会提示「你还没有音色仓库的访问权限，请联系仓库作者邀请你成为协作者」。
+
+   其他参数：`-GsvUrl`（默认 `http://127.0.0.1:9880`）、`-Tag`（默认 `manhui-v1`）、`-Repo`、`-DataDir`（默认 `server/data`）、
+   `-PatchConfig`（顺便改 `tts_infer.yaml`，见下）、`-Yes`（不提问）。GPT-SoVITS 目录也可以用环境变量 `GSV_DIR` 给。
+5. **让 GPT-SoVITS 默认加载这套权重**：在线切换只在本次运行有效，重启 GPT-SoVITS 会回到配置文件里的权重。
+   想一启动就是满穗，把 `GPT_SoVITS/configs/tts_infer.yaml`（或你用 `-c` 指定的配置文件）`custom` 段改成：
+
+   ```yaml
+   custom:
+     t2s_weights_path: GPT_weights_v2/manhui-e20.ckpt
+     vits_weights_path: SoVITS_weights_v2/manhui_e20_s880.pth
+     version: v2
+   ```
+
+   脚本会问要不要帮你改（加 `-PatchConfig` / `--patch-config` 直接改，改之前备份成 `tts_infer.yaml.bak-时间`）。然后按第 2 步启动 api_v2。
+6. **重启 DeskMate 后端**：后端只在启动时读 `voices.json`，重启后 `/health` 里应看到 `"tts": "满穗", "gsv": true`。
+
+注意：
+
+- 权重**不在 git 里**，也没用 Git LFS，只放在私有仓库的 Release 附件中，所以必须用有权限的账号经 `gh` 下载（网页登录后也能手动下载）。
+- `voices.json` 里的 `ref_audio_path` 是你本机的绝对路径（GPT-SoVITS 读取它）；把 DeskMate 仓库挪了位置要重新运行脚本。
+- 音色**仅限受邀协作者个人使用，禁止二次分发**（不要把权重、参考音频上传到公开仓库或网盘）；对外发布合成内容请标注 AI 合成。
+
 ### 其他配置
 
 | 变量 | 默认 | 说明 |
@@ -221,7 +279,7 @@ GPT-SoVITS 要用显卡，**放在宿主机上跑**，不放进容器（也没�
 
 - **只对你有权使用的声音做合成**（自己的声音、获得授权的声音、明确允许二次创作的素材）。不要用来冒充真人。
 - 对外分发合成的语音（包括让朋友通过你的服务器听到）时，建议标注为 AI 合成。
-- 参考音频、微调模型、生成的音频都不要提交到仓库（`server/data/` 已被 git 忽略）。
+- 参考音频、微调模型、生成的音频都不要提交到仓库（`server/data/` 已被 git 忽略）。作者的满穗音色只经私有仓库分发给协作者，见上文。
 
 ## 以后可以做的
 

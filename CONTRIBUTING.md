@@ -59,6 +59,24 @@ copy .env.example .env      # 按需修改 ACCESS_TOKENS、OLLAMA_MODEL 等
 > `.env` 里是令牌等机密，已被 `.gitignore` 忽略，**永远不要提交**。新增配置项时请同步更新 `.env.example`
 > 和 `deskmate_server/config.py` 的 `Settings`（启动时会校验类型和范围，填错会直接报出是哪一项）。
 
+#### 作者的满穗音色（私有，仅协作者）
+
+只开发客户端不需要它：连作者的官方服务器就能听到满穗的声音。想在本机跑后端 + GPT-SoVITS 并用同一个音色时，
+权重和参考音频放在私有仓库 `Mkerry12/DeepSeek-BoardMate-voice` 的 Release `manhui-v1` 附件里（不进 git、不用 LFS），
+`scripts/fetch-voice.ps1`（`.sh`）一条命令下载、校验并配置好，步骤见 [doc/gpt-sovits.md](doc/gpt-sovits.md#获取作者的满穗音色无需训练)。
+
+**作者邀请协作者**（只读权限即可下载 Release）：
+
+```bash
+gh api -X PUT repos/Mkerry12/DeepSeek-BoardMate-voice/collaborators/<GitHub用户名> -f permission=pull
+gh api repos/Mkerry12/DeepSeek-BoardMate-voice/invitations --jq '.[].invitee.login'   # 看还没接受的邀请
+gh api -X DELETE repos/Mkerry12/DeepSeek-BoardMate-voice/collaborators/<GitHub用户名>  # 收回权限
+```
+
+或者网页：音色仓库 Settings → Collaborators → Add people。对方接受邀请后 `gh auth login` 再运行 `fetch-voice` 即可。
+音色仅限受邀协作者个人使用，禁止二次分发；**不要把权重、参考音频提交到本仓库**（本仓库是公开的，`server/data/` 已被忽略）。
+发新版音色时在音色仓库建新 Release（附件 + `voice-manifest.json`），协作者用 `-Tag <新标签>` 下载。
+
 #### 依赖锁定
 
 `requirements.in` / `requirements-dev.in` 写直接依赖（宽松版本），`requirements.txt` / `requirements-dev.txt`
@@ -102,7 +120,7 @@ cd server
   **不依赖本机 `.env` 和 `server/data/`**（`make_settings()` 把令牌库、音色文件都放进临时目录）。
 - 改了 `scripts/` 里的部署脚本，至少做一次语法检查：PowerShell 用
   `[System.Management.Automation.Language.Parser]::ParseFile(...)`，bash 用 `bash -n scripts/deploy.sh`。
-  `deploy.ps1` 要保存成 **UTF-8 带 BOM**（否则 Windows PowerShell 5.1 会把中文读乱）。
+  `deploy.ps1`、`fetch-voice.ps1` 要保存成 **UTF-8 带 BOM**（否则 Windows PowerShell 5.1 会把中文读乱）。
 - 代码风格：TS 单引号、分号、2 空格、行宽 120（`.prettierrc`）；Python 行宽 110（`server/pyproject.toml`）。编辑器请启用 EditorConfig。
 - TypeScript 开 `strict`；`any` 只用在第三方库边界（Live2D 引擎的模型对象等），并用 `eslint-disable` 注明。
 
@@ -142,6 +160,7 @@ pre-commit install
 ```
 doc/                          产品设计文档、架构文档、GPT-SoVITS 配置说明（audio/ 是语音效果示例）
 scripts/deploy.ps1 / .sh      一键部署（Windows / macOS、Linux）
+scripts/fetch-voice.ps1 / .sh 下载作者共享的满穗音色（私有仓库 Release，需协作者权限）
 shared/emotion-tags.json      情绪标签唯一来源（客户端直接导入，服务器启动时读取）
 client/                       Electron 客户端（TypeScript + electron-vite）
   electron.vite.config.ts     main / preload / renderer 三份 Vite 构建

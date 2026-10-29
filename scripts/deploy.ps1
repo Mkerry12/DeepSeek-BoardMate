@@ -15,6 +15,10 @@
   # 全自动 + 本机 GPT-SoVITS 语音 + 用 Docker 跑后端
   powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -Yes -Docker `
     -GsvRefAudio 'D:\GPT-SoVITS\refs\voice.wav' -GsvPromptText '参考音频里说的那句话'
+
+.EXAMPLE
+  # 用作者共享的满穗音色（需要音色私有仓库的协作者权限，先 gh auth login）
+  powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -FetchVoice -GsvDir 'D:\GPT-SoVITS'
 #>
 [CmdletBinding()]
 param(
@@ -29,6 +33,10 @@ param(
     [string]$GsvRefAudio = '',
     [string]$GsvPromptText = '',
     [string]$GsvPromptLang = 'zh',
+    # 下载作者共享的满穗音色（私有仓库，需协作者权限 + gh auth login），见 scripts/fetch-voice.ps1
+    [switch]$FetchVoice,
+    # GPT-SoVITS 根目录（-FetchVoice 用；不填时读环境变量 GSV_DIR 或提问）
+    [string]$GsvDir = '',
     # 跳过 Ollama 检查和拉模型（比如 Ollama 在别的机器上）
     [switch]$SkipOllama,
     # 不构建客户端（只部署后端）
@@ -207,14 +215,24 @@ Step '语音（GPT-SoVITS，可选）'
 Remove-EnvKeys @('TTS_PROVIDER', 'TTS_FALLBACK', 'TTS_VOICE')
 $voicesFile = Join-Path $Server 'data\voices.json'
 $hasVoice = (Test-Path $voicesFile) -or [bool](Get-EnvValue 'GSV_REF_AUDIO')
-if ($Yes) { $setupGsv = [bool]$GsvRefAudio -or $PSBoundParameters.ContainsKey('GsvUrl') }
+if ($Yes) { $setupGsv = [bool]$GsvRefAudio -or $PSBoundParameters.ContainsKey('GsvUrl') -or $FetchVoice }
+elseif ($FetchVoice) { $setupGsv = $true }
 else {
     Write-Host '    桌宠的语音只有本机 GPT-SoVITS 一种（需要先装好并启动，见 doc/gpt-sovits.md）；跳过 = 不出声'
     $setupGsv = Confirm '配置 GPT-SoVITS 语音吗？' $hasVoice
 }
 if ($setupGsv) {
     $GsvUrl = Ask 'GPT-SoVITS 地址' $GsvUrl
-    if (-not $GsvRefAudio) { $GsvRefAudio = Ask '参考音频路径（GPT-SoVITS 那台机器上的 3~10 秒 wav；已有 server/data/voices.json 可留空）' (Get-EnvValue 'GSV_REF_AUDIO') }
+    $fetched = $false
+    if ($FetchVoice -or (-not $Yes -and -not $GsvRefAudio -and (Confirm '下载作者共享的满穗音色吗？（需协作者权限，见 doc/gpt-sovits.md）' $false))) {
+        $fetchArgs = @{ GsvUrl = $GsvUrl }
+        if ($GsvDir) { $fetchArgs.GsvDir = $GsvDir }
+        if ($Yes) { $fetchArgs.Yes = $true }
+        & (Join-Path $PSScriptRoot 'fetch-voice.ps1') @fetchArgs
+        if ($LASTEXITCODE -eq 0) { $hasVoice = $true; $fetched = $true; Ok '满穗音色已就绪（后端稍后启动时会读到 voices.json）' }
+        else { Warn '下载满穗音色没成功（见上面的提示），继续部署；以后可以单独运行 scripts\fetch-voice.ps1' }
+    }
+    if (-not $GsvRefAudio -and -not $fetched) { $GsvRefAudio = Ask '参考音频路径（GPT-SoVITS 那台机器上的 3~10 秒 wav；已有 server/data/voices.json 可留空）' (Get-EnvValue 'GSV_REF_AUDIO') }
     if ($GsvRefAudio -and -not $GsvPromptText) { $GsvPromptText = Ask '参考音频里说的那句话（强烈建议填）' (Get-EnvValue 'GSV_PROMPT_TEXT') }
     if ($GsvRefAudio) { $GsvPromptLang = Ask '参考音频语言 zh/en/ja/ko/yue' $GsvPromptLang }
     Set-EnvValue 'GSV_URL' $GsvUrl

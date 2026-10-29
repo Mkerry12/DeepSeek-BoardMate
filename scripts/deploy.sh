@@ -6,6 +6,7 @@
 #   bash scripts/deploy.sh --yes                 # 全自动（没给 --gsv-ref-audio 也没有 server/data/voices.json 时不朗读）
 #   bash scripts/deploy.sh --yes --docker \
 #        --gsv-ref-audio /data/refs/voice.wav --gsv-prompt-text '参考音频里说的那句话'
+#   bash scripts/deploy.sh --fetch-voice --gsv-dir ~/GPT-SoVITS   # 用作者共享的满穗音色（需协作者权限）
 #
 # 客户端（桌宠）主要面向 Windows；在 macOS / Linux 上默认只部署后端，加 --client 才构建客户端。
 set -euo pipefail
@@ -23,6 +24,8 @@ GSV_URL="http://127.0.0.1:9880"
 GSV_REF_AUDIO=""
 GSV_PROMPT_TEXT=""
 GSV_PROMPT_LANG="zh"
+FETCH_VOICE=0
+GSV_DIR="${GSV_DIR:-}"
 SKIP_OLLAMA=0
 BUILD_CLIENT=0
 NO_START=0
@@ -40,6 +43,8 @@ usage() {
   --gsv-ref-audio PATH     参考音频（GPT-SoVITS 那台机器上的 3~10 秒 wav）
   --gsv-prompt-text TEXT   参考音频里说的那句话
   --gsv-prompt-lang LANG   参考音频语言（默认 zh）
+  --fetch-voice            下载作者共享的满穗音色（私有仓库，需协作者权限 + gh auth login），见 scripts/fetch-voice.sh
+  --gsv-dir DIR            GPT-SoVITS 根目录（--fetch-voice 用；也可用环境变量 GSV_DIR）
   --skip-ollama            跳过 Ollama 检查和拉模型
   --client                 同时构建客户端（需要 Node.js 20+）
   --start-client           构建完启动客户端（隐含 --client）
@@ -57,6 +62,8 @@ while [[ $# -gt 0 ]]; do
     --gsv-ref-audio) GSV_REF_AUDIO="${2:?}"; GSV_SETUP=1; shift ;;
     --gsv-prompt-text) GSV_PROMPT_TEXT="${2:?}"; shift ;;
     --gsv-prompt-lang) GSV_PROMPT_LANG="${2:?}"; shift ;;
+    --fetch-voice) FETCH_VOICE=1; GSV_SETUP=1 ;;
+    --gsv-dir) GSV_DIR="${2:?}"; shift ;;
     --skip-ollama) SKIP_OLLAMA=1 ;;
     --client) BUILD_CLIENT=1 ;;
     --start-client) BUILD_CLIENT=1; START_CLIENT=1 ;;
@@ -221,7 +228,20 @@ if [[ $YES -eq 0 && $GSV_SETUP -eq 0 ]]; then
 fi
 if [[ $GSV_SETUP -eq 1 ]]; then
   GSV_URL="$(ask "GPT-SoVITS 地址" "$GSV_URL")"
-  [[ -z "$GSV_REF_AUDIO" ]] && GSV_REF_AUDIO="$(ask "参考音频路径（已有 server/data/voices.json 可留空）" "$(get_env GSV_REF_AUDIO)")"
+  FETCHED=0
+  if [[ $FETCH_VOICE -eq 0 && $YES -eq 0 && -z "$GSV_REF_AUDIO" ]] &&
+    confirm "下载作者共享的满穗音色吗？（需协作者权限，见 doc/gpt-sovits.md）" 0; then FETCH_VOICE=1; fi
+  if [[ $FETCH_VOICE -eq 1 ]]; then
+    fetch_args=(--gsv-url "$GSV_URL")
+    [[ -n "$GSV_DIR" ]] && fetch_args+=(--gsv-dir "$GSV_DIR")
+    [[ $YES -eq 1 ]] && fetch_args+=(--yes)
+    if bash "$ROOT/scripts/fetch-voice.sh" "${fetch_args[@]}"; then
+      HAS_VOICE=1; FETCHED=1; ok "满穗音色已就绪（后端稍后启动时会读到 voices.json）"
+    else
+      warn "下载满穗音色没成功（见上面的提示），继续部署；以后可以单独运行 scripts/fetch-voice.sh"
+    fi
+  fi
+  [[ -z "$GSV_REF_AUDIO" && $FETCHED -eq 0 ]] && GSV_REF_AUDIO="$(ask "参考音频路径（已有 server/data/voices.json 可留空）" "$(get_env GSV_REF_AUDIO)")"
   [[ -n "$GSV_REF_AUDIO" && -z "$GSV_PROMPT_TEXT" ]] && GSV_PROMPT_TEXT="$(ask "参考音频里说的那句话（强烈建议填）" "$(get_env GSV_PROMPT_TEXT)")"
   [[ -n "$GSV_REF_AUDIO" ]] && GSV_PROMPT_LANG="$(ask "参考音频语言 zh/en/ja/ko/yue" "$GSV_PROMPT_LANG")"
   set_env GSV_URL "$GSV_URL"
