@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { apiTarget, serverBase, streamChat, summarizeMemory, type ConnSettings } from '../src/renderer/lib/chat-api';
+import {
+  apiTarget,
+  checkConnection,
+  DEFAULT_EDGE_VOICE,
+  edgeVoice,
+  fetchVoices,
+  serverBase,
+  streamChat,
+  summarizeMemory,
+  type ConnSettings,
+} from '../src/renderer/lib/chat-api';
 import { MEMORY_MAX_CHARS } from '../src/renderer/lib/persona';
 import type { ChatEvent } from '../src/shared/types';
 
@@ -157,5 +167,46 @@ describe('summarizeMemory', () => {
     expect(text.startsWith('- 第0条')).toBe(true);
     expect(lines.startsWith(text)).toBe(true);
     expect(lines[text.length]).toBe('\n');
+  });
+});
+
+describe('server voices', () => {
+  it('fetches the voice list with the token', async () => {
+    const body = { provider: 'gpt_sovits', default: '穗', voices: [{ id: '穗', label: '满穗' }] };
+    const fetch = vi.fn(async (..._args: FetchArgs) => jsonResponse(body));
+    vi.stubGlobal('fetch', fetch);
+    expect(await fetchVoices(official)).toEqual(body);
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe('http://srv/tts/voices');
+    expect(init.headers.Authorization).toBe('Bearer tok');
+  });
+
+  it('returns null for older servers without /tts/voices', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: 'Not Found' }, 404)),
+    );
+    expect(await fetchVoices(official)).toBeNull();
+  });
+
+  it('maps non-Edge voice names to the default Edge voice', () => {
+    expect(edgeVoice('zh-CN-XiaoxiaoNeural')).toBe('zh-CN-XiaoxiaoNeural');
+    expect(edgeVoice('满穗')).toBe(DEFAULT_EDGE_VOICE);
+    expect(edgeVoice('')).toBe(DEFAULT_EDGE_VOICE);
+  });
+
+  it('shows a GPT-SoVITS chip when the server uses it', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url.endsWith('/health')
+          ? jsonResponse({ ollama: true, model: 'm', tts_provider: 'gpt_sovits', gsv: false })
+          : url.endsWith('/models')
+            ? jsonResponse({ models: ['m'], default: 'm' })
+            : jsonResponse({ ok: true }),
+      ),
+    );
+    const { chips } = await checkConnection(official);
+    expect(chips.at(-1)).toEqual({ text: 'GPT-SoVITS 未运行', ok: false });
   });
 });

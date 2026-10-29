@@ -1,4 +1,5 @@
-// 朗读回复：边流式输出边按句切分 → 依次合成（微软 Edge 神经网络语音）→ WebAudio 顺序播放，用实时音量驱动口型
+// 朗读回复：边流式输出边按句切分 → 依次合成（服务器的 Edge / GPT-SoVITS，或本机 Edge）→ WebAudio 顺序播放，用实时音量驱动口型
+// decodeAudioData 按内容识别格式，mp3 / wav / ogg 都能直接播；GPT-SoVITS 一句要 1~3 秒，排队合成、按顺序播放
 // 合成失败时退回 Windows 自带的 speechSynthesis；另外用 pet.json 的 sounds 播放提示音
 import type { SettingsView, VoiceSettings } from '../../shared/types';
 import { synthSpeech } from '../lib/chat-api';

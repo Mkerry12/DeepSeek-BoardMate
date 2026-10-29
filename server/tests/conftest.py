@@ -23,12 +23,19 @@ TEST_SETTINGS = {
     "memory_max_chars": 500,
     "tts_voice": "zh-CN-XiaoyiNeural",
     "tts_max_chars": 300,
+    "tts_provider": "edge",
+    "tts_fallback": "edge",
+    "gsv_url": "http://gsv.test",
+    "gsv_ref_audio": "",
+    "gsv_warmup": False,
 }
 
 
 def make_settings(**overrides) -> Settings:
-    """db_path 默认是一个不存在的目录下的新文件，测试之间互不影响。"""
-    overrides.setdefault("db_path", Path(tempfile.mkdtemp(prefix="deskmate-test-")) / "test.db")
+    """db_path / 音色文件默认放在新建的临时目录里，测试之间互不影响，也不会读到本机的 server/data。"""
+    tmp = Path(tempfile.mkdtemp(prefix="deskmate-test-"))
+    overrides.setdefault("db_path", tmp / "test.db")
+    overrides.setdefault("gsv_voices_file", tmp / "voices.json")
     return Settings(_env_file=None, **{**TEST_SETTINGS, **overrides})
 
 

@@ -2,6 +2,7 @@
 
 from functools import cached_property
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -30,6 +31,29 @@ class Settings(BaseSettings):
     tts_voice: str = "zh-CN-XiaoyiNeural"
     tts_max_chars: int = Field(default=300, ge=1)
     tts_rate_per_min: int = Field(default=90, ge=1)
+    # 语音合成：edge（微软 Edge 在线语音）或 gpt_sovits（本机 GPT-SoVITS api_v2）
+    tts_provider: Literal["edge", "gpt_sovits"] = "edge"
+    # GPT-SoVITS 不可用时：edge = 改用 Edge 语音，none = 直接报错
+    tts_fallback: Literal["edge", "none"] = "edge"
+    gsv_url: str = "http://127.0.0.1:9880"
+    # 音色预设文件（JSON，相对路径以 server/ 为基准），格式见 server/voices.example.json
+    gsv_voices_file: Path = Field(default=Path("data/voices.json"), validate_default=True)
+    # 也可以只用环境变量配一个音色（文件里没有同名音色时追加）
+    gsv_voice_name: str = Field(default="default", min_length=1, max_length=80)
+    gsv_ref_audio: str = ""
+    gsv_prompt_text: str = ""
+    gsv_prompt_lang: str = "zh"
+    gsv_text_lang: str = "zh"
+    gsv_speed: float = Field(default=1.0, ge=0.9, le=2.0)
+    gsv_text_split_method: str = Field(default="cut0", pattern="^cut[0-5]$")
+    gsv_media_type: Literal["wav", "ogg"] = "wav"
+    gsv_timeout: float = Field(default=120, ge=5)
+    # 单次发给 GPT-SoVITS 的最多字数，更长的按句切开、依次合成后拼接
+    gsv_max_chars: int = Field(default=80, ge=10, le=300)
+    # 排队等待合成的最多句数（单卡串行），超出时按 TTS_FALLBACK 处理
+    gsv_max_queue: int = Field(default=8, ge=1)
+    # 启动后在后台先合成一句，免得第一句话等 20 秒
+    gsv_warmup: bool = True
     # 令牌数据库（相对路径以 server/ 为基准）
     db_path: Path = Field(default=Path("data/deskmate.db"), validate_default=True)
     # 管理接口 /admin/* 的令牌；留空则关闭这些接口
@@ -39,14 +63,20 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: str = Field(default="text", pattern="^(text|json)$")
 
-    @field_validator("ollama_url")
+    @field_validator("ollama_url", "gsv_url")
     @classmethod
     def _strip_slash(cls, v: str) -> str:
         return v.rstrip("/")
 
-    @field_validator("db_path")
+    @field_validator("tts_provider", "tts_fallback", "gsv_media_type", mode="before")
     @classmethod
-    def _resolve_db(cls, v: Path) -> Path:
+    def _lower(cls, v):
+        v = v.strip().lower() if isinstance(v, str) else v
+        return {"gsv": "gpt_sovits", "gpt-sovits": "gpt_sovits"}.get(v, v)
+
+    @field_validator("db_path", "gsv_voices_file")
+    @classmethod
+    def _resolve_path(cls, v: Path) -> Path:
         return v if v.is_absolute() else SERVER_DIR / v
 
     @cached_property

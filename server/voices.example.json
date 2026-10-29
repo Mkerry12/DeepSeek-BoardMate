@@ -1,0 +1,15 @@
+{
+  "default": "示例音色",
+  "voices": [
+    {
+      "name": "示例音色",
+      "label": "示例音色 · 温柔",
+      "ref_audio_path": "D:/GPT-SoVITS/refs/example.wav",
+      "prompt_text": "这里写参考音频里说的那句话。",
+      "prompt_lang": "zh",
+      "text_lang": "zh",
+      "speed": 1.0,
+      "text_split_method": "cut0"
+    }
+  ]
+}
