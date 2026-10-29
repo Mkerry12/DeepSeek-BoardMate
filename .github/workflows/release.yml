@@ -1,26 +1,44 @@
 name: Release
 
-# 推送 v* 标签（如 v0.2.0）时：打包 Windows 安装版 + 便携版，发布到 GitHub Release（安装版据此自动更新）
+# 推送 v* 标签（如 v0.2.0）时：先检查（标签在 main 上、版本号一致、lint + 测试），
+# 再打包 Windows 安装版 + 便携版，发布到 GitHub Release（安装版据此自动更新）
 on:
   push:
     tags: ['v*']
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  # 和 ci.yml 一致：Cubism Core 没有带版本号的下载地址，按 sha256 锁定内容
+  CUBISM_CORE_URL: https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js
+  CUBISM_CORE_SHA256: 25ae938cb4fe282ce189b357bcc97e603d1e1f7ec78bf04150d401c23cdc792f
+
 jobs:
-  release:
-    name: release (windows)
-    runs-on: windows-latest
+  verify:
+    name: verify (tag + lint + test)
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: client
     steps:
       - uses: actions/checkout@v7
+        with:
+          # 要有 origin/main 才能判断标签是不是打在 main 上
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check tag commit is on main
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::标签 $GITHUB_REF_NAME 指向的提交 $GITHUB_SHA 不在 main 分支上，只发布合并进 main 的代码"
+            exit 1
+          fi
+
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -28,7 +46,6 @@ jobs:
           cache-dependency-path: client/package-lock.json
 
       - name: Check tag matches client/package.json version
-        shell: bash
         run: |
           version="$(node -p "require('./package.json').version")"
           if [ "v$version" != "$GITHUB_REF_NAME" ]; then
@@ -36,11 +53,38 @@ jobs:
             exit 1
           fi
 
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm test
+
+  release:
+    name: release (windows)
+    needs: [verify]
+    runs-on: windows-latest
+    # 只有这个 job 能写 Release
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
       - name: Download Live2D Cubism Core
         shell: bash
         run: |
           mkdir -p vendor
-          curl -fsSL -o vendor/live2dcubismcore.min.js https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js
+          curl -fsSL -o vendor/live2dcubismcore.min.js "$CUBISM_CORE_URL"
+          echo "$CUBISM_CORE_SHA256  vendor/live2dcubismcore.min.js" | sha256sum -c -
 
       - run: npm ci --ignore-scripts
       - name: Download Electron binary
