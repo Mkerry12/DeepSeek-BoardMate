@@ -3,7 +3,7 @@
 桌宠的朗读**只有 GPT-SoVITS 一种**：在主人电脑（需要 NVIDIA 显卡）上跑
 [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS)，小鲸就用你选的音色说话：离线、不花钱，音色由一段 3~10 秒的参考音频决定。
 **没装、没配置或没启动 GPT-SoVITS 时，桌宠就不出声**（嘴巴照常动、聊天不受影响），没有任何备用语音
-（以前的微软 Edge 语音和 Windows 系统语音都已移除）。「自己的 API Key」模式没有语音。
+（以前的微软 Edge 语音和 Windows 系统语音都已移除）。「自己的 API Key」模式下填了访问令牌，语音也走服务器的 GPT-SoVITS；不填就没有语音。
 
 后端（`server/`）只是把要读的句子转发给本机的 GPT-SoVITS api_v2 服务，再把音频原样返回给客户端；
 朋友的客户端不需要任何改动，**换音色只改服务器的配置**。
@@ -283,6 +283,6 @@ GPT-SoVITS 要用显卡，**放在宿主机上跑**，不放进容器（也没�
 
 ## 以后可以做的
 
-- 「自己的 API Key」模式目前没有语音；可以在设置里加一个「本机 GPT-SoVITS 地址」让客户端直连。
+- 「自己的 API Key」模式的语音要借服务器（需要访问令牌）；可以在设置里加一个「本机 GPT-SoVITS 地址」让客户端直连。
 - 按音色切换 GPT / SoVITS 权重（`/set_gpt_weights`、`/set_sovits_weights`，需要在串行锁里切换并记住当前权重）。
 - 流式合成（`streaming_mode`），进一步降低第一句的延迟。

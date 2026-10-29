@@ -42,7 +42,7 @@ export const settingsPanelFeature: Feature = ({ bus, store, bubble, voice, statu
     voiceSelect.value = voices.some((v) => v.id === selected) ? selected : list!.default || voices[0].id;
   }
 
-  // 语音区：API Key 模式没有语音（朗读开关灰掉）；官方模式看服务器 /health 的 gsv，没开就提示一句
+  // 语音区：API Key 模式没填访问令牌就没有语音（朗读开关灰掉）；能用时看服务器 /health 的 gsv，没开就提示一句
   let voiceSeq = 0;
   async function refreshVoice(selected = voiceSelect.disabled ? store.settings.voice.name : voiceSelect.value) {
     const seq = ++voiceSeq;
@@ -112,6 +112,7 @@ export const settingsPanelFeature: Feature = ({ bus, store, bubble, voice, statu
     const { settings } = store;
     form.mode.value = settings.mode;
     form.token.value = settings.token;
+    form.voiceToken.value = settings.token;
     form.serverUrl.value = settings.serverUrl;
     form.serverUrl.placeholder = settings.officialServerUrl;
     form.querySelector<HTMLDetailsElement>('.adv')!.open = !!settings.serverUrl;
@@ -149,9 +150,10 @@ export const settingsPanelFeature: Feature = ({ bus, store, bubble, voice, statu
 
   function formSettings() {
     const preset = presetSelect.value;
+    const mode = form.mode.value as 'official' | 'apikey';
     return {
-      mode: form.mode.value as 'official' | 'apikey',
-      token: form.token.value.trim(),
+      mode,
+      token: (mode === 'apikey' ? form.voiceToken : form.token).value.trim(),
       serverUrl: form.serverUrl.value.trim(),
       model: modelSelect.value,
       persona: form.persona.value.trim(),
@@ -179,8 +181,12 @@ export const settingsPanelFeature: Feature = ({ bus, store, bubble, voice, statu
   form.addEventListener('change', (e) => {
     const isMode = (e.target as HTMLInputElement).name === 'mode';
     if (isMode || e.target === presetSelect) syncFormMode();
-    if (isMode) refreshVoice();
+    if (isMode || e.target === form.token || e.target === form.voiceToken) refreshVoice();
   });
+
+  // 两种模式各有一个令牌输入框，存的是同一个设置
+  form.token.addEventListener('input', () => (form.voiceToken.value = form.token.value));
+  form.voiceToken.addEventListener('input', () => (form.token.value = form.voiceToken.value));
 
   // 音量：拖动时正在播的语音立刻跟着变，松手后没在说话就响一声试听
   form.volume.addEventListener('input', () => {

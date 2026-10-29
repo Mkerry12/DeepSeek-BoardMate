@@ -244,12 +244,24 @@ describe('synthSpeech (GPT-SoVITS only)', () => {
     await expect(synthSpeech(official, '你好', '')).rejects.toMatchObject({ status: 503, message: VOICE_OFF });
   });
 
-  it('has no voice in API key mode and never calls the network', async () => {
+  it('has no voice in API key mode without a token and never calls the network', async () => {
     const fetch = vi.fn();
     vi.stubGlobal('fetch', fetch);
     expect(voiceSupported(apikey)).toBe(false);
+    expect(voiceSupported({ ...apikey, token: '  ' })).toBe(false);
     expect(voiceSupported(official)).toBe(true);
     await expect(synthSpeech(apikey, '你好', '')).rejects.toMatchObject({ status: 503 });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('speaks through the server in API key mode when a token is set', async () => {
+    const fetch = vi.fn(async (..._args: FetchArgs) => new Response(new Uint8Array([7])));
+    vi.stubGlobal('fetch', fetch);
+    const keyWithToken = conn({ ...apikey, serverUrl: '', officialServerUrl: 'http://default', token: 'tok' });
+    expect(voiceSupported(keyWithToken)).toBe(true);
+    expect(new Uint8Array(await synthSpeech(keyWithToken, '你好', ''))).toEqual(new Uint8Array([7]));
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe('http://default/tts');
+    expect(init.headers.Authorization).toBe('Bearer tok');
   });
 });
