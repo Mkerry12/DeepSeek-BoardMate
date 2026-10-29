@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     tts_voice: str = "zh-CN-XiaoyiNeural"
     tts_max_chars: int = Field(default=300, ge=1)
     tts_rate_per_min: int = Field(default=90, ge=1)
+    # 令牌数据库（相对路径以 server/ 为基准）
+    db_path: Path = Field(default=Path("data/deskmate.db"), validate_default=True)
+    # 管理接口 /admin/* 的令牌；留空则关闭这些接口
+    admin_token: str = ""
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
     log_level: str = "INFO"
@@ -39,6 +43,11 @@ class Settings(BaseSettings):
     @classmethod
     def _strip_slash(cls, v: str) -> str:
         return v.rstrip("/")
+
+    @field_validator("db_path")
+    @classmethod
+    def _resolve_db(cls, v: Path) -> Path:
+        return v if v.is_absolute() else SERVER_DIR / v
 
     @cached_property
     def env_tokens(self) -> list[str]:

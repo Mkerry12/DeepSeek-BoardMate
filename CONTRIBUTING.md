@@ -160,14 +160,16 @@ server/
   deskmate_server/
     main.py                   应用工厂 create_app(settings) + run()；__main__.py 支持 python -m deskmate_server
     config.py                 Settings（pydantic-settings）：读环境变量 / server/.env，启动时校验
-    auth.py                   Bearer 令牌鉴权 + 按令牌 id 限流的依赖（ChatAuth / TTSAuth）
+    auth.py                   Bearer 令牌鉴权（先查令牌库再查 ACCESS_TOKENS）+ 按令牌 id 限流的依赖（ChatAuth / TTSAuth）
+    token_store.py            令牌库（SQLite，只存 sha256）：标签、创建 / 撤销 / 最后使用时间、每日请求数
+    tokens.py                 令牌命令行：python -m deskmate_server.tokens add|list|revoke|rename|import-env
     ratelimit.py              60 秒滑动窗口限流器
     ollama.py                 Ollama 客户端：探活、模型列表（排除嵌入模型，缓存 30 秒）、聊天
     persona.py                默认人设、REPLY_RULES（情绪标签读 shared/emotion-tags.json）、记忆提示词
     stream_filter.py          流式过滤：去 <think>、解析情绪标签
     logging_setup.py          访问日志中间件：request id、路径、状态码、耗时、令牌标签（从不记录令牌本身）
     schemas.py                请求体模型与长度限制
-    routes/                   health（/health /auth-check）、models、chat（SSE）、memory、tts
+    routes/                   health（/health /auth-check）、models、chat（SSE）、memory、tts、admin（设了 ADMIN_TOKEN 才启用）
   tests/                      pytest（conftest 用 make_settings() 构造配置，不读本机 .env）
 ```
 

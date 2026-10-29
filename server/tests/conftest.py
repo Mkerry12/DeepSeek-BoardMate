@@ -1,3 +1,6 @@
+import tempfile
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -24,12 +27,14 @@ TEST_SETTINGS = {
 
 
 def make_settings(**overrides) -> Settings:
+    """db_path 默认是一个不存在的目录下的新文件，测试之间互不影响。"""
+    overrides.setdefault("db_path", Path(tempfile.mkdtemp(prefix="deskmate-test-")) / "test.db")
     return Settings(_env_file=None, **{**TEST_SETTINGS, **overrides})
 
 
 @pytest.fixture
-def settings() -> Settings:
-    return make_settings()
+def settings(tmp_path) -> Settings:
+    return make_settings(db_path=tmp_path / "test.db")
 
 
 @pytest.fixture
@@ -41,3 +46,4 @@ def app(settings):
 def client(app):
     with TestClient(app) as c:
         yield c
+    app.state.auth.store.close()
