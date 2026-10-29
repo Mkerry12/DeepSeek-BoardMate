@@ -2,8 +2,9 @@
 import type { Settings, SettingsPatch, SettingsView } from '../shared/types';
 import { readJson, writeJson } from './json-file';
 
-// 「官方服务器」：主人电脑上的 server（转发到 Ollama）。发给朋友前改成花生壳域名再打包
-export const OFFICIAL_SERVER_URL = 'http://5f8c344a.r15.cpolar.top';
+// 「官方服务器」：主人电脑上的 server（转发到 Ollama）。默认值在 client/build-env.ts，
+// 打包时可用环境变量 DESKMATE_SERVER_URL 换成别的地址（开发 / 测试 / 正式各用各的）
+export const OFFICIAL_SERVER_URL: string = __DESKMATE_SERVER_URL__;
 
 export const DEFAULT_SETTINGS: Settings = {
   mode: 'official',
@@ -17,6 +18,7 @@ export const DEFAULT_SETTINGS: Settings = {
   voice: { on: false, name: 'zh-CN-XiaoyiNeural', sfx: true, volume: 80 },
   greeted: {},
   alwaysOnTop: true,
+  autoUpdate: true,
   position: null,
 };
 

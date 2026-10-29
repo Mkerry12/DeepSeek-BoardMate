@@ -1,0 +1,73 @@
+name: Release
+
+# 推送 v* 标签（如 v0.2.0）时：打包 Windows 安装版 + 便携版，发布到 GitHub Release（安装版据此自动更新）
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: release (windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Check tag matches client/package.json version
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::标签 $GITHUB_REF_NAME 和 client/package.json 的版本 $version 不一致"
+            exit 1
+          fi
+
+      - name: Download Live2D Cubism Core
+        shell: bash
+        run: |
+          mkdir -p vendor
+          curl -fsSL -o vendor/live2dcubismcore.min.js https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js
+
+      - run: npm ci --ignore-scripts
+      - name: Download Electron binary
+        run: node node_modules/electron/install.js
+
+      - name: Build
+        run: npm run build
+        env:
+          # 仓库 Settings → Variables 里可设置 DESKMATE_SERVER_URL 覆盖默认的官方服务器地址
+          DESKMATE_SERVER_URL: ${{ vars.DESKMATE_SERVER_URL }}
+
+      # electron-builder 先建草稿 Release 并上传安装包、便携版、latest.yml、blockmap
+      - name: Package and upload
+        run: npx electron-builder --win nsis portable --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      # 生成更新说明（按合并的 PR 自动整理），然后正式发布草稿
+      - name: Publish release with generated notes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          notes="$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$GITHUB_REF_NAME" --jq .body)"
+          printf '%s\n\n%s\n' "$notes" "> 推荐下载 **DeepSeekDeskMate-Setup-*.exe（安装版）**，以后会自动更新；便携版不能自动更新，有新版本时桌宠会提醒你来这里下载。" > release-notes.md
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --title "DeepSeek DeskMate $GITHUB_REF_NAME" \
+            --notes-file release-notes.md --draft=false --latest
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'

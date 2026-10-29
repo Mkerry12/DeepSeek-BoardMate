@@ -43,5 +43,6 @@ export const MENU_ORDER = {
   clearHistory: 140,
   window: 150,
   separator2: 200,
+  update: 205,
   app: 210,
 } as const;

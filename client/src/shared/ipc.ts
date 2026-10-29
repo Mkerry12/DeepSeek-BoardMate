@@ -2,6 +2,7 @@
 //   主进程按 InvokeContract / SendContract 注册处理函数（src/main/ipc.ts，缺一个就编译不过）
 //   preload 按 DESK_API 生成 window.desk（src/preload/index.ts），渲染进程拿到的类型是 DeskApi
 import type { AppCommand, AppState, ChatMessage, MemoryState, MenuAction, SettingsPatch, SettingsView } from './types';
+import type { UpdateStatus } from './update';
 
 /** 渲染进程 → 主进程，有返回值（ipcRenderer.invoke / ipcMain.handle） */
 export interface InvokeContract {
@@ -15,6 +16,9 @@ export interface InvokeContract {
   'clipboard:read': () => string;
   'model:url': () => string;
   'app:state': () => AppState;
+  'update:status': () => UpdateStatus;
+  /** 立即检查一次，返回检查后的状态 */
+  'update:check': () => UpdateStatus;
 }
 
 /** 渲染进程 → 主进程，不等结果（ipcRenderer.send / ipcMain.on） */
@@ -24,11 +28,16 @@ export interface SendContract {
   'drag:start': () => void;
   'drag:end': () => void;
   'app:command': (name: AppCommand, arg?: boolean) => void;
+  /** 安装版：退出并安装已下载的更新 */
+  'update:install': () => void;
+  /** 打开 GitHub Release 下载页（便携版） */
+  'update:open-page': () => void;
 }
 
 /** 主进程 → 渲染进程（webContents.send / ipcRenderer.on） */
 export interface EventContract {
   'menu:action': (action: MenuAction) => void;
+  'update:changed': (status: UpdateStatus) => void;
 }
 
 export type InvokeChannel = keyof InvokeContract;
@@ -52,12 +61,17 @@ export const DESK_API = {
   readClipboard: { kind: 'invoke', channel: 'clipboard:read' },
   getModelUrl: { kind: 'invoke', channel: 'model:url' },
   getAppState: { kind: 'invoke', channel: 'app:state' },
+  getUpdateStatus: { kind: 'invoke', channel: 'update:status' },
+  checkUpdate: { kind: 'invoke', channel: 'update:check' },
   notify: { kind: 'send', channel: 'notify' },
   setIgnoreMouse: { kind: 'send', channel: 'mouse:ignore' },
   dragStart: { kind: 'send', channel: 'drag:start' },
   dragEnd: { kind: 'send', channel: 'drag:end' },
   command: { kind: 'send', channel: 'app:command' },
+  installUpdate: { kind: 'send', channel: 'update:install' },
+  openReleasePage: { kind: 'send', channel: 'update:open-page' },
   onMenuAction: { kind: 'event', channel: 'menu:action' },
+  onUpdateStatus: { kind: 'event', channel: 'update:changed' },
 } as const satisfies Record<string, ApiEntry>;
 
 type Api = typeof DESK_API;

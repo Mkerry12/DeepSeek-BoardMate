@@ -20,6 +20,7 @@ export interface SettingsFormElements extends HTMLFormElement {
   voiceOn: HTMLInputElement;
   sfxOn: HTMLInputElement;
   volume: HTMLInputElement;
+  autoUpdate: HTMLInputElement;
 }
 
 export function queryDom() {

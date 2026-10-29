@@ -97,8 +97,27 @@ npm install
 node node_modules/electron/install.js   # 如果 electron 二进制没下载下来
 npm run dev        # 开发运行（Vite 热更新）
 npm run build; npm start   # 构建到 client/out 并运行构建产物
-npm run dist       # 构建 + 打包成 exe，输出在 client/dist（便携版 + 安装包）
+npm run dist       # 构建 + 打包成 exe，输出在 client/dist（便携版 + 安装包），不上传
 ```
+
+### 发布新版本 & 自动更新
+
+正式版由 GitHub Actions 打包发布，不用在本机打包：
+
+1. 改 `client/package.json` 的 `version`（如 `0.2.1`），提 PR 合并到 main；
+2. 在 main 上打标签并推送：`git tag v0.2.1; git push origin v0.2.1`（标签必须和 version 一致，否则发布任务直接失败）；
+3. 「Release」工作流在 Windows 上打包，自动发布 [Release](https://github.com/Mkerry12/DeepSeek-BoardMate/releases)：
+   安装版 `DeepSeekDeskMate-Setup-x.y.z.exe`、便携版 `DeepSeekDeskMate-x.y.z-portable.exe`、`latest.yml` 和 `.blockmap`，更新说明按合并的 PR 自动生成。
+
+自动更新（设置里「自动更新」开关，默认开）：
+
+- **安装版**：启动 15 秒后和每 6 小时检查一次，后台下载好后桌宠会说「有新版本啦，重启就能用上～」；
+  右键菜单 / 托盘点「重启并更新」立即安装，不点的话下次退出时自动安装。
+- **便携版不能自动更新**（运行中的 exe 换不掉）：只会提醒「有新版本」，点一下打开下载页，需要手动下载替换。
+  **所以发给朋友时推荐用安装版**，以后都不用再手动发 exe。
+- 右键「检查更新」随时手动检查；开发运行（`npm run dev` / `npm start`）不检查。日志在 `%APPDATA%\deepseek-deskmate\logs\main.log`。
+- 官方服务器默认地址在打包时注入：环境变量 `DESKMATE_SERVER_URL`（发布工作流读仓库 Settings → Variables 里的同名变量），
+  不设置时用 `client/build-env.ts` 里的默认地址。**换了内网穿透域名，改这个变量再发一版即可**，朋友装的安装版会自动更新过去。
 
 - 角色是 Live2D「DS鲸鱼娘」（`client/assets/live2d/ds-whale-girl/`）
   - 来源：[A8Chann/dsh-pet-live2d](https://github.com/A8Chann/dsh-pet-live2d)，协议 **CC BY-NC-SA 4.0**（署名、非商用、相同方式共享）
@@ -110,7 +129,7 @@ npm run dist       # 构建 + 打包成 exe，输出在 client/dist（便携版 
 ### 连接方式
 
 - **官方服务器**（默认）：连主人电脑上的 server（Ollama），只需填令牌；「高级」里可改服务器地址。
-  默认地址写在 `client/src/main/settings.ts` 的 `OFFICIAL_SERVER_URL`，**打包发给朋友前改成花生壳域名**。
+  默认地址在打包时注入（见上面「发布新版本」里的 `DESKMATE_SERVER_URL`），**打包发给朋友前设成你的内网穿透域名**。
   可在设置里选服务器上的模型（`GET /models`，自动排除 bge-m3 等嵌入模型）和自定义人设。
 - **自己的 API Key**：客户端直连 OpenAI 兼容接口，不经过服务器。预设 DeepSeek 官方
   （`deepseek-chat` / `deepseek-reasoner`），或选「自定义」填接口地址 + 模型名（OpenAI、硅基流动、通义等）。
