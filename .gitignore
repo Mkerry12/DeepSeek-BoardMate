@@ -22,6 +22,12 @@ env/
 !.env.example
 server/.env
 
+# 令牌库等运行时数据（SQLite）
+server/data/
+*.db
+*.db-wal
+*.db-shm
+
 # Live2D Cubism Core (proprietary, download per README)
 client/vendor/
 

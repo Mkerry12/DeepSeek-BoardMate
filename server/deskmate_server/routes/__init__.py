@@ -1,3 +1,3 @@
-from . import chat, health, memory, models, tts
+from . import admin, chat, health, memory, models, tts
 
-ROUTERS = [health.router, models.router, chat.router, memory.router, tts.router]
+ROUTERS = [health.router, models.router, chat.router, memory.router, tts.router, admin.router]

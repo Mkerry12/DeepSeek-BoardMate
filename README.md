@@ -34,12 +34,39 @@ copy .env.example .env      # 修改 ACCESS_TOKENS、OLLAMA_MODEL
   `.env` 里 `LOG_FORMAT=json` 可改成 JSON 行。响应头带 `X-Request-ID`，排查问题时让朋友报这个 id 即可。
 - 拉新代码后先 `.\.venv\Scripts\pip install -r requirements.txt` 再重启（依赖版本已锁定，见 CONTRIBUTING）。
 
+### 管理朋友的令牌
+
+令牌存在 `server/data/deskmate.db`（SQLite，已被 git 忽略），**只存哈希，不存明文**；每个令牌有标签（朋友的名字），
+记录最后使用时间、每天的请求数。限流按令牌分别计算。以下命令都在 `server/` 目录下运行，**不用重启后端，立即生效**：
+
+```powershell
+cd server
+.\.venv\Scripts\python -m deskmate_server.tokens add 小明      # 给小明发一个新令牌（只显示这一次，复制给他）
+.\.venv\Scripts\python -m deskmate_server.tokens list          # 看所有令牌：创建时间、最后使用、今日 / 累计请求、是否撤销
+.\.venv\Scripts\python -m deskmate_server.tokens revoke 小明   # 撤销（也可以用 list 里的 id）
+.\.venv\Scripts\python -m deskmate_server.tokens rename 3 小红 # 改标签
+```
+
+朋友在桌宠右键「设置」→ 官方服务器 →「访问令牌」里填入令牌即可。
+
+**从 `.env` 的 `ACCESS_TOKENS` 迁移**（旧令牌一直有效，已经发出去的不用换）：
+
+1. 运行 `.\.venv\Scripts\python -m deskmate_server.tokens import-env`，把 `ACCESS_TOKENS` 里的令牌按顺序导入为 `token-1`、`token-2`……
+   （已导入的会跳过，可重复运行；不会打印令牌内容）
+2. 用 `rename token-1 小明` 改成朋友的名字，之后 `list` 里就能看到每个人的用量。
+3. 确认都导入后，可以把 `.env` 里的 `ACCESS_TOKENS` 清空（不清也行：先查令牌库，再查 `.env`；
+   **在令牌库里撤销的令牌，即使还写在 `.env` 里也会被拒绝**）。
+
+可选的管理接口：在 `.env` 设置 `ADMIN_TOKEN=<很长的随机串>` 后启用 `GET /admin/tokens`、`POST /admin/tokens {"label": "小明"}`、
+`POST /admin/tokens/<标签或id>/revoke`（`Authorization: Bearer <ADMIN_TOKEN>`）。不设置时这些接口不存在（404）。
+因为后端经内网穿透暴露在公网，**不需要的话就别开**，命令行就够用了。
+
 ## 2. 花生壳内网穿透
 
 1. 安装花生壳客户端并登录，添加映射：
    - 映射类型：HTTPS（或 HTTP）
    - 内网主机：`127.0.0.1`，内网端口：`8000`
-2. 得到外网地址，例如 `https://xxxx.vicp.fun`，发给朋友，再给每人一个 `ACCESS_TOKENS` 里的令牌。
+2. 得到外网地址，例如 `https://xxxx.vicp.fun`，发给朋友，再用上面的 `tokens add` 给每人发一个令牌。
 
 注意：只映射 8000 端口，**不要映射 Ollama 的 11434**（它没有任何鉴权）。
 
