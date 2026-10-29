@@ -2,12 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   apiTarget,
   checkConnection,
-  DEFAULT_EDGE_VOICE,
-  edgeVoice,
+  fetchVoiceReady,
   fetchVoices,
   serverBase,
   streamChat,
   summarizeMemory,
+  synthSpeech,
+  VOICE_OFF,
+  voiceSupported,
   type ConnSettings,
 } from '../src/renderer/lib/chat-api';
 import { MEMORY_MAX_CHARS } from '../src/renderer/lib/persona';
@@ -189,13 +191,7 @@ describe('server voices', () => {
     expect(await fetchVoices(official)).toBeNull();
   });
 
-  it('maps non-Edge voice names to the default Edge voice', () => {
-    expect(edgeVoice('zh-CN-XiaoxiaoNeural')).toBe('zh-CN-XiaoxiaoNeural');
-    expect(edgeVoice('满穗')).toBe(DEFAULT_EDGE_VOICE);
-    expect(edgeVoice('')).toBe(DEFAULT_EDGE_VOICE);
-  });
-
-  it('shows a GPT-SoVITS chip when the server uses it', async () => {
+  it('shows a voice chip from /health gsv', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) =>
@@ -207,6 +203,53 @@ describe('server voices', () => {
       ),
     );
     const { chips } = await checkConnection(official);
-    expect(chips.at(-1)).toEqual({ text: 'GPT-SoVITS 未运行', ok: false });
+    expect(chips.at(-1)).toEqual({ text: VOICE_OFF, ok: false });
+  });
+
+  it('reads GPT-SoVITS readiness from /health, null when unknown', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ ok: true, gsv: true })),
+    );
+    expect(await fetchVoiceReady(official)).toBe(true);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ ok: true })),
+    );
+    expect(await fetchVoiceReady(official)).toBeNull();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Promise.reject(new Error('down'))),
+    );
+    expect(await fetchVoiceReady(official)).toBeNull();
+  });
+});
+
+describe('synthSpeech (GPT-SoVITS only)', () => {
+  it('posts to the server /tts and returns the audio', async () => {
+    const fetch = vi.fn(async (..._args: FetchArgs) => new Response(new Uint8Array([1, 2, 3])));
+    vi.stubGlobal('fetch', fetch);
+    const buf = await synthSpeech(official, '你好', '穗');
+    expect(new Uint8Array(buf)).toEqual(new Uint8Array([1, 2, 3]));
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe('http://srv/tts');
+    expect(JSON.parse(init.body)).toEqual({ text: '你好', voice: '穗' });
+  });
+
+  it('rejects (no fallback) when the server has no voice', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: VOICE_OFF }, 503)),
+    );
+    await expect(synthSpeech(official, '你好', '')).rejects.toMatchObject({ status: 503, message: VOICE_OFF });
+  });
+
+  it('has no voice in API key mode and never calls the network', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    expect(voiceSupported(apikey)).toBe(false);
+    expect(voiceSupported(official)).toBe(true);
+    await expect(synthSpeech(apikey, '你好', '')).rejects.toMatchObject({ status: 503 });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

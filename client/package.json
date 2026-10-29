@@ -54,8 +54,7 @@
     ]
   },
   "dependencies": {
-    "electron-updater": "^6.8.11",
-    "msedge-tts": "^2.1.0"
+    "electron-updater": "^6.8.11"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -20,7 +20,7 @@ services:
       DB_PATH: /app/data/deskmate.db
       # 宿主机上的 Ollama；用 ollama profile 时改成 http://ollama:11434
       OLLAMA_URL: ${DESKMATE_OLLAMA_URL:-http://host.docker.internal:11434}
-      # GPT-SoVITS 跑在宿主机上（要用显卡），容器经 host.docker.internal 访问；只在 .env 里 TTS_PROVIDER=gpt_sovits 时用到。
+      # 朗读只用 GPT-SoVITS：它跑在宿主机上（要用显卡），容器经 host.docker.internal 访问；没配置音色时不朗读。
       # Linux 上 GPT-SoVITS 要监听 0.0.0.0（api_v2.py -a 0.0.0.0）容器才连得上，见 doc/gpt-sovits.md
       # 音色里的 ref_audio_path 是宿主机上的路径（由 GPT-SoVITS 读取），原样写就行
       GSV_URL: ${DESKMATE_GSV_URL:-http://host.docker.internal:9880}

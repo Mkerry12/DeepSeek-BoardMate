@@ -45,6 +45,17 @@ describe('migrateSettings', () => {
     expect(s.reminders.rest).toEqual(DEFAULT_SETTINGS.reminders.rest);
   });
 
+  it('resets old Edge voice names to the server default and keeps GPT-SoVITS preset names', () => {
+    expect(DEFAULT_SETTINGS.voice.name).toBe('');
+    expect(migrateSettings({ voice: { on: true, name: 'zh-CN-XiaoyiNeural' } }, cipher).voice).toEqual({
+      ...DEFAULT_SETTINGS.voice,
+      on: true,
+      name: '',
+    });
+    expect(migrateSettings({ voice: { name: 'zh-CN-liaoning-XiaobeiNeural' } }, cipher).voice.name).toBe('');
+    expect(migrateSettings({ voice: { name: '穗' } }, cipher).voice.name).toBe('穗');
+  });
+
   it('migrates an old v0.1 settings file with peek / character / modelPath', () => {
     const old = {
       mode: 'official',

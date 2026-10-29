@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# DeepSeek DeskMate 一键部署（macOS / Linux）：检查环境 → 拉模型 → 装后端 → 生成令牌 → 可选配置 GPT-SoVITS → 构建客户端 → 启动。
+# DeepSeek DeskMate 一键部署（macOS / Linux）：检查环境 → 拉模型 → 装后端 → 生成令牌 → 可选配置 GPT-SoVITS 语音 → 构建客户端 → 启动。
+# 语音只有本机 GPT-SoVITS 一种；跳过这一步桌宠就不出声（其他功能不受影响）。
 #
 #   bash scripts/deploy.sh                       # 交互式
-#   bash scripts/deploy.sh --yes                 # 全自动，Edge 语音
-#   bash scripts/deploy.sh --yes --docker --tts gpt_sovits \
+#   bash scripts/deploy.sh --yes                 # 全自动（没给 --gsv-ref-audio 也没有 server/data/voices.json 时不朗读）
+#   bash scripts/deploy.sh --yes --docker \
 #        --gsv-ref-audio /data/refs/voice.wav --gsv-prompt-text '参考音频里说的那句话'
 #
 # 客户端（桌宠）主要面向 Windows；在 macOS / Linux 上默认只部署后端，加 --client 才构建客户端。
@@ -15,9 +16,9 @@ CLIENT="$ROOT/client"
 ENV_FILE="$SERVER/.env"
 
 YES=0
-TTS=""
 DOCKER=0
 MODEL=""
+GSV_SETUP=0
 GSV_URL="http://127.0.0.1:9880"
 GSV_REF_AUDIO=""
 GSV_PROMPT_TEXT=""
@@ -32,9 +33,9 @@ usage() {
   cat <<'EOF'
 用法：bash scripts/deploy.sh [选项]
   -y, --yes                不提问，全部用默认值 / 命令行参数
-  --tts edge|gpt_sovits    语音合成方式（默认交互询问；--yes 时为 edge）
   --docker                 用 docker compose 运行后端，而不是本机 Python venv
   --model NAME             Ollama 模型（默认取 server/.env 的 OLLAMA_MODEL，即 deepseek-r1:8b）
+  以下是可选的 GPT-SoVITS 语音（唯一的语音；不配置 = 桌宠不出声）：
   --gsv-url URL            GPT-SoVITS 地址（默认 http://127.0.0.1:9880）
   --gsv-ref-audio PATH     参考音频（GPT-SoVITS 那台机器上的 3~10 秒 wav）
   --gsv-prompt-text TEXT   参考音频里说的那句话
@@ -50,11 +51,10 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -y | --yes) YES=1 ;;
-    --tts) TTS="${2:?}"; shift ;;
     --docker) DOCKER=1 ;;
     --model) MODEL="${2:?}"; shift ;;
-    --gsv-url) GSV_URL="${2:?}"; shift ;;
-    --gsv-ref-audio) GSV_REF_AUDIO="${2:?}"; shift ;;
+    --gsv-url) GSV_URL="${2:?}"; GSV_SETUP=1; shift ;;
+    --gsv-ref-audio) GSV_REF_AUDIO="${2:?}"; GSV_SETUP=1; shift ;;
     --gsv-prompt-text) GSV_PROMPT_TEXT="${2:?}"; shift ;;
     --gsv-prompt-lang) GSV_PROMPT_LANG="${2:?}"; shift ;;
     --skip-ollama) SKIP_OLLAMA=1 ;;
@@ -67,9 +67,6 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
-
-case "$TTS" in "" | edge | gpt_sovits) ;; *) echo "--tts 只能是 edge 或 gpt_sovits"; exit 2 ;; esac
-
 c_cyan=$'\033[36m'; c_green=$'\033[32m'; c_yellow=$'\033[33m'; c_red=$'\033[31m'; c_off=$'\033[0m'
 step() { printf '\n%s==> %s%s\n' "$c_cyan" "$1" "$c_off"; }
 ok() { printf '    %s[ok]%s %s\n' "$c_green" "$c_off" "$1"; }
@@ -84,11 +81,23 @@ ask() { # ask "问题" "默认值" → 输出答案
   printf '%s' "${answer:-$2}"
 }
 
-confirm() { # confirm "问题" → 默认是
-  local answer
-  [[ $YES -eq 1 ]] && return 0
-  read -r -p "    $1 (Y/n): " answer </dev/tty || true
-  [[ -z "$answer" || "$answer" =~ ^[Yy] ]]
+confirm() { # confirm "问题" [默认 1=是 / 0=否]
+  local answer default="${2:-1}"
+  [[ $YES -eq 1 ]] && return $((1 - default))
+  if [[ $default -eq 1 ]]; then read -r -p "    $1 (Y/n): " answer </dev/tty || true
+  else read -r -p "    $1 (y/N): " answer </dev/tty || true; fi
+  [[ -z "$answer" ]] && return $((1 - default))
+  [[ "$answer" =~ ^[Yy] ]]
+}
+
+remove_env() { # 删掉 server/.env 里已经废弃的项（留着也没事，后端会忽略）
+  [[ -f "$ENV_FILE" ]] || return 0
+  local pattern="^[[:space:]]*($(IFS='|'; echo "$*"))[[:space:]]*=" tmp
+  grep -qE "$pattern" "$ENV_FILE" || return 0
+  tmp="$(mktemp)"
+  grep -vE "$pattern" "$ENV_FILE" >"$tmp" || true
+  cat "$tmp" >"$ENV_FILE" && rm -f "$tmp"
+  ok "已从 server/.env 删掉废弃的 $*"
 }
 
 get_env() {
@@ -201,36 +210,33 @@ if [[ $SKIP_OLLAMA -eq 0 ]]; then
   fi
 fi
 
-# ---------------------------------------------------------------- 4. 语音合成
-step "语音合成"
-if [[ -z "$TTS" ]]; then
-  current="$(get_env TTS_PROVIDER)"
-  if [[ $YES -eq 1 || ( -n "$current" && $NEW_ENV -eq 0 ) ]]; then
-    TTS="${current:-edge}"
-  else
-    echo "    edge       = 微软 Edge 在线语音（默认，不占显卡）"
-    echo "    gpt_sovits = 本机 GPT-SoVITS 自定义音色（需要先装好并启动，见 doc/gpt-sovits.md）"
-    TTS="$(ask "选择语音合成方式 edge / gpt_sovits" edge)"
-  fi
+# ---------------------------------------------------------------- 4. 语音（GPT-SoVITS，可选）
+step "语音（GPT-SoVITS，可选）"
+remove_env TTS_PROVIDER TTS_FALLBACK TTS_VOICE
+HAS_VOICE=0
+[[ -f "$SERVER/data/voices.json" || -n "$(get_env GSV_REF_AUDIO)" ]] && HAS_VOICE=1
+if [[ $YES -eq 0 && $GSV_SETUP -eq 0 ]]; then
+  echo "    桌宠的语音只有本机 GPT-SoVITS 一种（需要先装好并启动，见 doc/gpt-sovits.md）；跳过 = 不出声"
+  confirm "配置 GPT-SoVITS 语音吗？" "$HAS_VOICE" && GSV_SETUP=1
 fi
-if [[ "$TTS" == "gpt_sovits" ]]; then
+if [[ $GSV_SETUP -eq 1 ]]; then
   GSV_URL="$(ask "GPT-SoVITS 地址" "$GSV_URL")"
   [[ -z "$GSV_REF_AUDIO" ]] && GSV_REF_AUDIO="$(ask "参考音频路径（已有 server/data/voices.json 可留空）" "$(get_env GSV_REF_AUDIO)")"
   [[ -n "$GSV_REF_AUDIO" && -z "$GSV_PROMPT_TEXT" ]] && GSV_PROMPT_TEXT="$(ask "参考音频里说的那句话（强烈建议填）" "$(get_env GSV_PROMPT_TEXT)")"
   [[ -n "$GSV_REF_AUDIO" ]] && GSV_PROMPT_LANG="$(ask "参考音频语言 zh/en/ja/ko/yue" "$GSV_PROMPT_LANG")"
-  set_env TTS_PROVIDER gpt_sovits
-  set_env TTS_FALLBACK edge
   set_env GSV_URL "$GSV_URL"
   if [[ -n "$GSV_REF_AUDIO" ]]; then
     set_env GSV_REF_AUDIO "$GSV_REF_AUDIO"
     set_env GSV_PROMPT_TEXT "$GSV_PROMPT_TEXT"
     set_env GSV_PROMPT_LANG "$GSV_PROMPT_LANG"
-  elif [[ ! -f "$SERVER/data/voices.json" ]]; then
-    warn "既没填参考音频，也没有 server/data/voices.json：GPT-SoVITS 没有可用音色，会一直用 Edge 兜底"
+    HAS_VOICE=1
+  fi
+  if [[ $HAS_VOICE -eq 0 ]]; then
+    warn "既没填参考音频，也没有 server/data/voices.json：没有可用音色，桌宠不会出声"
     warn "照 server/voices.example.json 写一份 server/data/voices.json 后重启后端即可"
   fi
   if url_alive "$GSV_URL/control"; then ok "GPT-SoVITS 在线：$GSV_URL"; else
-    warn "连不上 $GSV_URL（还没启动？）。后端照样能用，GPT-SoVITS 起来之前用 Edge 语音兜底"
+    warn "连不上 $GSV_URL（还没启动？）。后端照样能用，GPT-SoVITS 起来之前桌宠不出声"
   fi
   if [[ $DOCKER -eq 1 ]]; then
     if [[ "$GSV_URL" =~ 127\.0\.0\.1|localhost ]]; then
@@ -240,9 +246,10 @@ if [[ "$TTS" == "gpt_sovits" ]]; then
       export DESKMATE_GSV_URL="$GSV_URL"
     fi
   fi
+elif [[ $HAS_VOICE -eq 1 ]]; then
+  ok "沿用已有的 GPT-SoVITS 音色配置"
 else
-  set_env TTS_PROVIDER edge
-  ok "使用 Edge 语音"
+  ok "跳过语音：桌宠不出声（以后照 doc/gpt-sovits.md 配好再重新运行本脚本即可）"
 fi
 
 PORT="$(get_env PORT)"

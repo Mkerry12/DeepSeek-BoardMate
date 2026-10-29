@@ -1,18 +1,10 @@
-// 朗读回复：边流式输出边按句切分 → 依次合成（服务器的 Edge / GPT-SoVITS，或本机 Edge）→ WebAudio 顺序播放，用实时音量驱动口型
-// decodeAudioData 按内容识别格式，mp3 / wav / ogg 都能直接播；GPT-SoVITS 一句要 1~3 秒，排队合成、按顺序播放
-// 合成失败时退回 Windows 自带的 speechSynthesis；另外用 pet.json 的 sounds 播放提示音
+// 朗读回复：边流式输出边按句切分 → 服务器 GPT-SoVITS 依次合成 → WebAudio 顺序播放，用实时音量驱动口型
+// decodeAudioData 按内容识别格式，wav / ogg 都能直接播；GPT-SoVITS 一句要 1~3 秒，排队合成、按顺序播放
+// 语音只有 GPT-SoVITS 一种：合成失败（服务器没开语音、GPT-SoVITS 没起）就不出声，口型交给正弦动画，
+// 并在 SILENT_MS 内不再请求。另外用 pet.json 的 sounds 播放提示音（WebAudio 音调，不是语音）
 import type { SettingsView, VoiceSettings } from '../../shared/types';
-import { synthSpeech } from '../lib/chat-api';
+import { synthSpeech, voiceSupported } from '../lib/chat-api';
 import type { Sounds } from '../pet/live2d';
-
-export const VOICES: [id: string, label: string][] = [
-  ['zh-CN-XiaoyiNeural', '晓伊 · 活泼可爱'],
-  ['zh-CN-XiaoxiaoNeural', '晓晓 · 温柔'],
-  ['zh-CN-liaoning-XiaobeiNeural', '晓北 · 东北话'],
-  ['zh-CN-shaanxi-XiaoniNeural', '晓妮 · 陕西话'],
-  ['zh-TW-HsiaoYuNeural', '曉雨 · 台湾腔'],
-  ['zh-CN-YunxiaNeural', '云夏 · 少年音'],
-];
 
 export type ChimeKind = 'done' | 'failed' | 'waiting' | 'asking';
 
@@ -23,6 +15,7 @@ const MIN_SOFT = 24;
 const NOISE_FLOOR = 0.01;
 const GAIN = 6;
 const DEFAULT_VOLUME = 80;
+const SILENT_MS = 30_000;
 
 // 设置里的百分比 → 增益，按平方走，小音量那一段调起来更细
 function toGain(percent: number | undefined): number {
@@ -75,13 +68,14 @@ export function createVoice({ getSettings, sounds }: { getSettings: () => Settin
   let samples: Float32Array<ArrayBuffer> | null = null;
   let gen = 0;
   let abort = new AbortController();
-  let queue: { text: string; data: Promise<ArrayBuffer | null> }[] = [];
+  let queue: { data: Promise<ArrayBuffer | null> }[] = [];
   let pending = '';
   let pumping = false;
   let source: AudioBufferSourceNode | null = null;
-  let fallbackSpeaking = false;
+  let silentUntil = 0;
 
   const conf = (): Partial<VoiceSettings> => getSettings().voice || {};
+  const enabled = () => !!conf().on && voiceSupported(getSettings()) && Date.now() >= silentUntil;
   let volume = toGain(conf().volume);
 
   // 语音 → analyser（口型按原始音量算，调小声嘴也照样动）→ 音量 → 扬声器；提示音直接进音量
@@ -108,30 +102,40 @@ export function createVoice({ getSettings, sounds }: { getSettings: () => Settin
 
   // 流式文本：攒够一句就送去合成
   function feed(text: string) {
-    if (!conf().on) return;
+    if (!enabled()) return;
     pending += text;
     for (let cut; (cut = cutAt(pending)); pending = pending.slice(cut)) enqueue(pending.slice(0, cut));
   }
 
   function flush() {
-    if (conf().on && pending) enqueue(pending);
+    if (enabled() && pending) enqueue(pending);
     pending = '';
   }
 
   function speak(text: string) {
-    if (!conf().on) return;
+    if (!enabled()) return;
     feed(text);
     flush();
   }
 
+  // 语音不可用：丢掉排队的句子，这段时间里不再请求，嘴巴交给正弦动画
+  function goSilent(reason: string) {
+    if (Date.now() >= silentUntil) console.info('[voice] 不朗读：', reason);
+    silentUntil = Date.now() + SILENT_MS;
+    queue = [];
+    pending = '';
+  }
+
   function enqueue(sentence: string) {
+    if (!enabled()) return;
     const text = cleanForSpeech(sentence);
     if (!speakable(text)) return;
-    const data = synthSpeech(getSettings(), text, conf().name || '', abort.signal).catch((err: Error) => {
-      if (!abort.signal.aborted) console.warn('[voice] 合成失败，改用系统语音：', err.message);
+    const signal = abort.signal;
+    const data = synthSpeech(getSettings(), text, conf().name || '', signal).catch((err: Error) => {
+      if (!signal.aborted) goSilent(err.message);
       return null;
     });
-    queue.push({ text, data });
+    queue.push({ data });
     pump();
   }
 
@@ -140,10 +144,10 @@ export function createVoice({ getSettings, sounds }: { getSettings: () => Settin
     pumping = true;
     const mine = gen;
     while (queue.length && mine === gen) {
-      const { text, data } = queue.shift()!;
+      const { data } = queue.shift()!;
       const bytes = await data;
       if (mine !== gen) return;
-      if (!bytes || !(await play(bytes))) await speakFallback(text);
+      if (bytes) await play(bytes);
     }
     if (mine === gen) pumping = false;
   }
@@ -170,25 +174,6 @@ export function createVoice({ getSettings, sounds }: { getSettings: () => Settin
     }
   }
 
-  function speakFallback(text: string): Promise<void> | undefined {
-    if (!window.speechSynthesis) return;
-    return new Promise((resolve) => {
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'zh-CN';
-      u.rate = 1.1;
-      u.pitch = 1.3;
-      u.volume = volume;
-      const zh = speechSynthesis.getVoices().find((v) => v.lang.startsWith('zh'));
-      if (zh) u.voice = zh;
-      u.onend = u.onerror = () => {
-        fallbackSpeaking = false;
-        resolve();
-      };
-      fallbackSpeaking = true;
-      speechSynthesis.speak(u);
-    });
-  }
-
   function stop() {
     gen++;
     abort.abort();
@@ -200,21 +185,15 @@ export function createVoice({ getSettings, sounds }: { getSettings: () => Settin
       source?.stop();
     } catch {}
     source = null;
-    if (fallbackSpeaking) speechSynthesis.cancel();
-    fallbackSpeaking = false;
   }
 
-  // 口型：正在播语音 → 实时音量；排队合成中 → 闭嘴等着；没有语音 → null（交给正弦口型）
+  // 口型：正在播语音 → 实时音量；排队合成中 → 闭嘴等着；没有语音（含语音不可用）→ null（交给正弦口型）
   function level(): number | null {
     if (source && analyser && samples) {
       analyser.getFloatTimeDomainData(samples);
       let sum = 0;
       for (const v of samples) sum += v * v;
       return Math.max(0, Math.sqrt(sum / samples.length) - NOISE_FLOOR) * GAIN;
-    }
-    if (fallbackSpeaking) {
-      const t = performance.now() / 1000;
-      return 0.45 + 0.4 * Math.sin(t * 15) * Math.sin(t * 6.1);
     }
     return pumping || queue.length ? 0 : null;
   }
@@ -248,7 +227,7 @@ export function createVoice({ getSettings, sounds }: { getSettings: () => Settin
     chime,
     setVolume,
     get active() {
-      return !!source || fallbackSpeaking || pumping || queue.length > 0;
+      return !!source || pumping || queue.length > 0;
     },
   };
 }

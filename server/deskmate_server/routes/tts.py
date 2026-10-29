@@ -10,7 +10,7 @@ router = APIRouter()
 
 @router.post("/tts")
 async def tts(req: TTSRequest, request: Request, _: TTSAuth):
-    """朗读一句话，返回音频二进制：Edge 是 audio/mpeg，GPT-SoVITS 是 audio/wav 或 audio/ogg。"""
+    """朗读一句话，返回 GPT-SoVITS 的 audio/wav 或 audio/ogg；语音服务没开或不可用时返回 503。"""
     service: TTSService = request.app.state.tts
     audio = await service.synthesize(req.text, req.voice, request.is_disconnected)
     return Response(
@@ -22,5 +22,5 @@ async def tts(req: TTSRequest, request: Request, _: TTSAuth):
 
 @router.get("/tts/voices")
 async def voices(request: Request, _: TTSAuth):
-    """当前语音提供方可选的音色，客户端设置里的音色下拉框用。"""
+    """GPT-SoVITS 音色预设（没配置时是空列表），客户端设置里的音色下拉框用。"""
     return request.app.state.tts.voices()

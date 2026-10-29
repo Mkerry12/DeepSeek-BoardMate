@@ -382,6 +382,14 @@ svg {
   color: var(--brand);
 }
 
+.menu-item:disabled,
+.menu-item:disabled:hover {
+  background: none;
+  color: inherit;
+  opacity: 0.5;
+  cursor: default;
+}
+
 .menu-item.danger,
 .menu-item.danger:hover {
   background: rgba(229, 72, 77, 0.08);

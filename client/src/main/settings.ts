@@ -16,7 +16,8 @@ export const DEFAULT_SETTINGS: Settings = {
   reminders: { water: { on: true, minutes: 45 }, rest: { on: true, minutes: 60 } },
   // 只存用户改过的槽位；默认装扮在角色配置 deskmate.json 的 outfit.default 里
   outfit: {},
-  voice: { on: false, name: 'zh-CN-XiaoyiNeural', sfx: true, volume: 80 },
+  // name：服务器 GPT-SoVITS 的音色预设名，空 = 服务器默认音色
+  voice: { on: false, name: '', sfx: true, volume: 80 },
   greeted: {},
   alwaysOnTop: true,
   autoUpdate: true,
@@ -26,6 +27,8 @@ export const DEFAULT_SETTINGS: Settings = {
 const NESTED = ['api', 'reminders', 'outfit', 'voice', 'greeted'] as const;
 // 旧版本留下、现在不再使用的字段
 const OBSOLETE = ['peek', 'character', 'modelPath'] as const;
+// 旧版本存下的微软 Edge 音色名（如 zh-CN-XiaoyiNeural），语音只剩 GPT-SoVITS 后换回服务器默认音色
+const OLD_EDGE_VOICE = /^[a-z]{2,3}-[A-Z]{2}(-[a-z]+)?-[A-Za-z]+Neural$/;
 
 /** 加解密由调用方提供（主进程里是 safeStorage / DPAPI），方便测试 */
 export interface KeyCipher {
@@ -63,6 +66,7 @@ export function migrateSettings(saved: unknown, cipher: KeyCipher): Settings {
     }
     delete api.keyEnc;
   }
+  if (typeof s.voice.name !== 'string' || OLD_EDGE_VOICE.test(s.voice.name)) s.voice.name = '';
   // 旧版本贴边藏起来时存下的位置在屏幕外，回到默认位置
   if (s.peek) s.position = null;
   for (const key of OBSOLETE) delete s[key];

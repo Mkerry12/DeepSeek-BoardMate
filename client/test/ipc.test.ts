@@ -56,8 +56,8 @@ describe('IPC contract', () => {
     expect(handle.mock.calls.map((c) => c[0]).sort()).toEqual(channelsOf('invoke').sort());
     expect(on.mock.calls.map((c) => c[0]).sort()).toEqual(channelsOf('send').sort());
 
-    const [, ttsListener] = handle.mock.calls.find((c) => c[0] === 'tts')!;
-    expect(await ttsListener({ sender: 1 }, 'hi', 'voice')).toEqual(['tts', 'hi', 'voice']);
+    const [, historyListener] = handle.mock.calls.find((c) => c[0] === 'history:set')!;
+    expect(await historyListener({ sender: 1 }, ['m'])).toEqual(['history:set', ['m']]);
     const [, notifyListener] = on.mock.calls.find((c) => c[0] === 'notify')!;
     notifyListener({ sender: 1 }, 'title', 'body');
     expect(send.notify).toHaveBeenCalledWith('title', 'body');
@@ -73,8 +73,8 @@ describe('IPC contract', () => {
     expect(Object.keys(api).sort()).toEqual(Object.keys(DESK_API).sort());
 
     expect(await api.setSettings({ token: 't' })).toEqual(['settings:set', { token: 't' }]);
-    await api.tts('hi', 'zh-CN-XiaoyiNeural');
-    expect(ipc.invoke).toHaveBeenLastCalledWith('tts', 'hi', 'zh-CN-XiaoyiNeural');
+    await api.saveMemory({ text: 'm', count: 1 } as never);
+    expect(ipc.invoke).toHaveBeenLastCalledWith('memory:set', { text: 'm', count: 1 });
 
     api.command('alwaysOnTop', false);
     expect(ipc.send).toHaveBeenLastCalledWith('app:command', 'alwaysOnTop', false);

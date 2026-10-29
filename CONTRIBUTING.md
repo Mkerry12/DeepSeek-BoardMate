@@ -98,7 +98,7 @@ cd server
 - 客户端测试在 `client/test/`，覆盖纯逻辑模块（流式过滤、人设拼接、SSE 解析、记忆、触摸、运势、问候时段）、
   事件总线、设置迁移、角色配置校验、IPC 契约，以及情绪标签与服务器的一致性。
   涉及 DOM / Electron 的模块尽量把纯逻辑拆成导出的函数再测。
-- 后端测试在 `server/tests/`，用 FastAPI `TestClient` + `respx` 模拟 Ollama 和 GPT-SoVITS、用假的 `edge_tts` 代替联网，
+- 后端测试在 `server/tests/`，用 FastAPI `TestClient` + `respx` 模拟 Ollama 和 GPT-SoVITS，
   **不依赖本机 `.env` 和 `server/data/`**（`make_settings()` 把令牌库、音色文件都放进临时目录）。
 - 改了 `scripts/` 里的部署脚本，至少做一次语法检查：PowerShell 用
   `[System.Management.Automation.Language.Parser]::ParseFile(...)`，bash 用 `bash -n scripts/deploy.sh`。
@@ -155,7 +155,7 @@ client/                       Electron 客户端（TypeScript + electron-vite）
     history.ts                聊天记录 / 长期记忆读写
     ipc.ts                    按契约实现所有 IPC 处理函数（漏实现一个通道会编译失败）
     drag.ts  system.ts        拖动窗口；剪贴板、系统通知
-    autostart.ts  tts.ts      开机自启；Edge 语音合成
+    autostart.ts              开机自启
     paths.ts                  开发 / 打包两种情况下的资源路径
   src/preload/index.ts        按契约生成 window.desk
   src/renderer/
@@ -184,7 +184,7 @@ server/
     stream_filter.py          流式过滤：去 <think>、解析情绪标签
     logging_setup.py          访问日志中间件：request id、路径、状态码、耗时、令牌标签（从不记录令牌本身）
     schemas.py                请求体模型与长度限制
-    tts/                      语音合成：TTSService 按 TTS_PROVIDER 选 edge / gpt_sovits，GPT-SoVITS 串行、长句切分、失败退回 Edge；
+    tts/                      语音合成（只有 GPT-SoVITS）：TTSService 没配置 / 不可用时返回 503（不朗读），串行、长句切分；
                               voices.py 读音色预设（GSV_VOICES_FILE / GSV_REF_AUDIO），text.py 朗读文本清理
     routes/                   health（/health /auth-check）、models、chat（SSE）、memory、tts（/tts /tts/voices）、admin（设了 ADMIN_TOKEN 才启用）
   voices.example.json         GPT-SoVITS 音色预设示例（真实的放 server/data/voices.json，已被 git 忽略）
@@ -211,9 +211,10 @@ server/
   字段和校验见 `src/renderer/character/config.ts`；`npm test` 会校验所有角色目录下的配置。
 - **新增后端接口**：在 `server/deskmate_server/routes/` 新建一个 `APIRouter` 模块并加进 `routes/__init__.py` 的 `ROUTERS`；
   参数里写 `_: ChatAuth` 就带上鉴权和限流，请求体放 `schemas.py` 用 Pydantic 限制长度，配置从 `request.app.state.settings` 取；在 `server/tests/` 加测试。
-- **新增语音合成提供方**：在 `server/deskmate_server/tts/` 实现 `base.TTSProvider`（`synthesize` / `voices` / `default_voice`），
-  在 `TTSService.__init__` 按配置创建，`config.py` 的 `tts_provider` 加取值，补 `.env.example` 和 `tests/test_tts.py`。
-  客户端不用改：播放时 `decodeAudioData` 自动识别 mp3 / wav / ogg，音色列表来自 `GET /tts/voices`。
+- **语音合成**：刻意只有 GPT-SoVITS 一种，没有备用语音（不要再加 Edge / 系统语音之类的兜底）——要么是主人的音色，要么不出声。
+  新增音色只改 `server/data/voices.json`（格式见 `server/voices.example.json`）；改合成逻辑在 `server/deskmate_server/tts/gpt_sovits.py`，
+  补 `tests/test_tts.py`。`POST /tts` 失败一律返回非 200（没配置 / 不可用是 503），客户端 `services/voice.ts` 收到失败就静音一段时间、
+  口型交给正弦动画；音色列表来自 `GET /tts/voices`，播放时 `decodeAudioData` 自动识别 wav / ogg。
 - **新增配置项**：后端加到 `.env.example`；客户端设置的类型在 `src/shared/types.ts`，默认值和迁移在 `src/main/settings.ts`，
   设置面板在 `index.html` + `features/settings-panel.ts`。
 

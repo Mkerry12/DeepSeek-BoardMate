@@ -1,6 +1,7 @@
 """本机 GPT-SoVITS（api_v2.py，默认 http://127.0.0.1:9880）。
 
-- 单卡串行：所有请求经过一把锁依次发送，排队超过 GSV_MAX_QUEUE 句直接判为不可用（交给备用方案）
+- 单卡串行：所有请求经过一把锁依次发送，排队超过 GSV_MAX_QUEUE 句直接判为不可用（这句不读）
+- 连不上时记下来，DOWN_COOLDOWN 秒内的请求直接判为不可用，不再一句句去等连接超时
 - 单次最多 GSV_MAX_CHARS 字：更长的按句切开依次合成，wav 拼接成一段（句间留一点停顿）
 - 健康检查：GET /control 返回 400 就是活着（它的设计如此），连不上才是没起
 """
@@ -22,6 +23,7 @@ from .voices import VoicePreset, load_presets
 MEDIA_TYPES = {"wav": "audio/wav", "ogg": "audio/ogg"}
 PAUSE_SECONDS = 0.12
 WARMUP_TEXT = "你好呀。"
+DOWN_COOLDOWN = 10.0
 
 
 class Cancelled(Exception):
@@ -69,6 +71,7 @@ class GPTSoVITSProvider:
         self.presets, self._default = load_presets(settings)
         self._lock = asyncio.Lock()
         self._pending = 0
+        self._down_until = 0.0
 
     def default_voice(self) -> str:
         return self._default or ""
@@ -98,6 +101,8 @@ class GPTSoVITSProvider:
         is_cancelled: Callable[[], Awaitable[bool]] | None = None,
     ) -> Audio:
         preset = self.preset_for(voice)
+        if time.monotonic() < self._down_until:
+            raise TTSUnavailable("GPT-SoVITS 刚才连不上，稍后再试")
         if self._pending >= self.max_queue:
             raise TTSUnavailable(f"GPT-SoVITS 排队已满（{self.max_queue} 句）")
         self._pending += 1
@@ -140,6 +145,9 @@ class GPTSoVITSProvider:
         }
         try:
             r = await client.post(f"{self.base_url}/tts", json=body)
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            self._down_until = time.monotonic() + DOWN_COOLDOWN
+            raise TTSUnavailable(f"连接 GPT-SoVITS 失败: {e.__class__.__name__}") from e
         except httpx.HTTPError as e:
             raise TTSUnavailable(f"连接 GPT-SoVITS 失败: {e.__class__.__name__}") from e
         if r.status_code != 200 or not r.content:

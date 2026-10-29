@@ -41,6 +41,7 @@ export function queryDom() {
     presetSelect: byId<HTMLSelectElement>('set-preset'),
     apiModelSelect: byId<HTMLSelectElement>('set-api-model'),
     voiceSelect: byId<HTMLSelectElement>('set-voice'),
+    voiceHint: byId<HTMLSpanElement>('set-voice-hint'),
     volumeOut: byId<HTMLOutputElement>('set-volume-out'),
   };
 }

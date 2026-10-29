@@ -8,7 +8,6 @@ import type { createHistoryStore, createMemoryStore } from './history';
 import { modelUrl } from './paths';
 import type { SettingsStore } from './settings';
 import { notify, readClipboard } from './system';
-import { edgeTts } from './tts';
 import type { Updater } from './updater';
 import { getWindow, setAlwaysOnTop } from './window';
 
@@ -45,7 +44,6 @@ export function createHandlers({ settings, history, memory, updater }: Stores): 
       'history:set': (messages) => history.set(messages),
       'memory:get': () => memory.get(),
       'memory:set': (m) => memory.set(m),
-      tts: (text, voice) => edgeTts(String(text), String(voice)),
       'clipboard:read': () => readClipboard(),
       'model:url': () => modelUrl(),
       'app:state': () => ({ alwaysOnTop: settings.get().alwaysOnTop, autostart: autostartEnabled() }),

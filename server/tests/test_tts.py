@@ -8,8 +8,8 @@ import pytest
 import respx
 from fastapi.testclient import TestClient
 
+from deskmate_server.config import Settings
 from deskmate_server.main import create_app
-from deskmate_server.tts import edge as edge_module
 from deskmate_server.tts.gpt_sovits import GPTSoVITSProvider, concat_wav
 from deskmate_server.tts.text import clean_for_speech, split_text
 from deskmate_server.tts.voices import load_presets
@@ -41,30 +41,11 @@ def wav_frames(data: bytes) -> int:
         return w.getnframes()
 
 
-class FakeCommunicate:
-    calls: list[tuple[str, str]] = []
-
-    def __init__(self, text, voice):
-        FakeCommunicate.calls.append((text, voice))
-
-    async def stream(self):
-        yield {"type": "audio", "data": b"ID3mp3"}
-
-
-@pytest.fixture
-def fake_edge(monkeypatch):
-    FakeCommunicate.calls = []
-    monkeypatch.setattr(edge_module.edge_tts, "Communicate", FakeCommunicate)
-    return FakeCommunicate
-
-
 def gsv_settings(tmp_path, voices=VOICES, **overrides):
     path = tmp_path / "voices.json"
     if voices is not None:
         path.write_text(json.dumps(voices, ensure_ascii=False), encoding="utf-8")
-    return make_settings(
-        tts_provider="gpt_sovits", gsv_voices_file=path, db_path=tmp_path / "t.db", **overrides
-    )
+    return make_settings(gsv_voices_file=path, db_path=tmp_path / "t.db", **overrides)
 
 
 @pytest.fixture
@@ -105,9 +86,16 @@ def test_concat_wav_rejects_mismatched_formats():
 # ---------- 配置 / 音色 ----------
 
 
-def test_provider_alias_and_defaults():
-    assert make_settings(tts_provider="GSV").tts_provider == "gpt_sovits"
-    assert make_settings().tts_provider == "edge"
+def test_old_edge_env_vars_are_ignored(tmp_path, monkeypatch):
+    env = tmp_path / ".env"
+    env.write_text(
+        "TTS_PROVIDER=edge\nTTS_FALLBACK=edge\nTTS_VOICE=zh-CN-XiaoyiNeural\nGSV_SPEED=1.1\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TTS_PROVIDER", "gpt_sovits")
+    settings = Settings(_env_file=env)
+    assert settings.tts_enabled is True and settings.gsv_speed == 1.1
+    assert not hasattr(settings, "tts_provider") and not hasattr(settings, "tts_voice")
 
 
 def test_load_presets_file_and_env(tmp_path):
@@ -195,39 +183,52 @@ def test_gsv_long_text_split_and_concatenated(gsv_client):
 
 
 @respx.mock
-def test_gsv_down_falls_back_to_edge(gsv_client, fake_edge):
-    respx.post(f"{GSV}/tts").mock(side_effect=httpx.ConnectError("refused"))
+def test_gsv_down_returns_503_without_fallback(gsv_client):
+    route = respx.post(f"{GSV}/tts").mock(side_effect=httpx.ConnectError("refused"))
     r = gsv_client.post("/tts", headers=AUTH, json={"text": "你好", "voice": "穗"})
-    assert r.status_code == 200
-    assert r.headers["content-type"] == "audio/mpeg"
-    assert r.headers["x-tts-provider"] == "edge"
-    assert fake_edge.calls == [("你好", "zh-CN-XiaoyiNeural")]
+    assert r.status_code == 503
+    assert r.json()["detail"].startswith("语音服务暂时不可用")
+    # 冷却期内不再去连，直接 503
+    r = gsv_client.post("/tts", headers=AUTH, json={"text": "再来一句"})
+    assert r.status_code == 503 and route.call_count == 1
 
 
 @respx.mock
-def test_gsv_error_status_falls_back_with_edge_voice(gsv_client, fake_edge):
+def test_gsv_error_status_returns_503(gsv_client):
     respx.post(f"{GSV}/tts").mock(return_value=httpx.Response(400, json={"message": "bad"}))
     r = gsv_client.post("/tts", headers=AUTH, json={"text": "你好", "voice": "zh-CN-XiaoxiaoNeural"})
-    assert r.status_code == 200
-    assert fake_edge.calls == [("你好", "zh-CN-XiaoxiaoNeural")]
+    assert r.status_code == 503
+    assert "GPT-SoVITS 返回 400" in r.json()["detail"]
+
+
+def test_tts_without_presets_returns_503(client):
+    r = client.post("/tts", headers=AUTH, json={"text": "你好", "voice": "zh-CN-XiaoyiNeural"})
+    assert r.status_code == 503
+    assert r.json() == {"detail": "语音服务未开启"}
+
+
+def test_tts_disabled_returns_503(tmp_path):
+    app = create_app(gsv_settings(tmp_path, tts_enabled=False))
+    with TestClient(app) as c:
+        assert c.post("/tts", headers=AUTH, json={"text": "你好"}).json() == {"detail": "语音服务未开启"}
+        assert c.get("/tts/voices", headers=AUTH).json()["voices"] == []
 
 
 @respx.mock
-def test_gsv_no_fallback_reports_502(tmp_path, fake_edge):
-    app = create_app(gsv_settings(tmp_path, tts_fallback="none"))
-    respx.post(f"{GSV}/tts").mock(side_effect=httpx.ConnectError("refused"))
-    with TestClient(app) as c:
-        r = c.post("/tts", headers=AUTH, json={"text": "你好"})
-    assert r.status_code == 502
-    assert "GPT-SoVITS" in r.json()["detail"]
-    assert fake_edge.calls == []
+def test_tts_truncates_long_text(gsv_client):
+    route = respx.post(f"{GSV}/tts").mock(return_value=httpx.Response(200, content=wav_bytes(10)))
+    gsv_client.post("/tts", headers=AUTH, json={"text": "读" * 1000})
+    sent = "".join(json.loads(c.request.content)["text"] for c in route.calls)
+    assert sent == "读" * 300
 
 
-def test_gsv_without_presets_falls_back(tmp_path, fake_edge):
-    app = create_app(gsv_settings(tmp_path, voices=None))
-    with TestClient(app) as c:
-        r = c.post("/tts", headers=AUTH, json={"text": "你好"})
-    assert r.headers["x-tts-provider"] == "edge"
+@pytest.mark.parametrize("text", ["", "x" * 4001])
+def test_tts_text_length_validation(gsv_client, text):
+    assert gsv_client.post("/tts", headers=AUTH, json={"text": text}).status_code == 422
+
+
+def test_tts_requires_auth(gsv_client):
+    assert gsv_client.post("/tts", json={"text": "hi"}).status_code == 401
 
 
 def test_tts_rejects_text_without_speakable_content(gsv_client):
@@ -312,11 +313,13 @@ def test_gsv_warmup_gives_up_when_down(tmp_path):
 
 
 @respx.mock
-def test_health_edge_provider(client):
+def test_health_without_voice_config(client):
     respx.get("http://ollama.test/api/tags").mock(return_value=httpx.Response(200, json={"models": []}))
+    control = respx.get(f"{GSV}/control")
     body = client.get("/health").json()
-    assert body["tts"] == "zh-CN-XiaoyiNeural"
-    assert body["tts_provider"] == "edge" and body["gsv"] is None
+    assert body["tts"] is None
+    assert body["tts_provider"] == "gpt_sovits" and body["gsv"] is False
+    assert control.call_count == 0
 
 
 @respx.mock
@@ -334,6 +337,7 @@ def test_health_gsv_reachability(gsv_client, mock, alive):
     respx.get(f"{GSV}/control").mock(**mock)
     body = gsv_client.get("/health").json()
     assert body["ok"] is True
+    assert body["tts"] == "穗"
     assert body["tts_provider"] == "gpt_sovits"
     assert body["gsv"] is alive
 
@@ -341,19 +345,9 @@ def test_health_gsv_reachability(gsv_client, mock, alive):
 # ---------- /tts/voices ----------
 
 
-def test_voices_edge(client):
+def test_voices_empty_without_config(client):
     body = client.get("/tts/voices", headers=AUTH).json()
-    assert body["provider"] == "edge"
-    assert body["default"] == "zh-CN-XiaoyiNeural"
-    assert body["voices"][0] == {"id": "zh-CN-XiaoyiNeural", "label": "晓伊 · 活泼可爱"}
-    assert len(body["voices"]) == len(edge_module.EDGE_VOICES)
-
-
-def test_voices_edge_custom_default_listed_first():
-    app = create_app(make_settings(tts_voice="en-US-AriaNeural"))
-    with TestClient(app) as c:
-        voices = c.get("/tts/voices", headers=AUTH).json()["voices"]
-    assert voices[0]["id"] == "en-US-AriaNeural"
+    assert body == {"provider": "gpt_sovits", "default": "", "voices": []}
 
 
 def test_voices_gsv(gsv_client):

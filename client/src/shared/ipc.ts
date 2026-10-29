@@ -12,7 +12,6 @@ export interface InvokeContract {
   'history:set': (messages: ChatMessage[]) => void;
   'memory:get': () => MemoryState | null;
   'memory:set': (memory: MemoryState) => void;
-  tts: (text: string, voice: string) => Uint8Array;
   'clipboard:read': () => string;
   'model:url': () => string;
   'app:state': () => AppState;
@@ -57,7 +56,6 @@ export const DESK_API = {
   saveHistory: { kind: 'invoke', channel: 'history:set' },
   getMemory: { kind: 'invoke', channel: 'memory:get' },
   saveMemory: { kind: 'invoke', channel: 'memory:set' },
-  tts: { kind: 'invoke', channel: 'tts' },
   readClipboard: { kind: 'invoke', channel: 'clipboard:read' },
   getModelUrl: { kind: 'invoke', channel: 'model:url' },
   getAppState: { kind: 'invoke', channel: 'app:state' },
