@@ -7,8 +7,19 @@ import {
   installKind,
   updateAnnouncement,
   updateMenuItem,
+  versionFromReleaseUrl,
   type UpdateStatus,
 } from '../src/shared/update';
+
+describe('versionFromReleaseUrl', () => {
+  it('reads the version from the releases/latest redirect target', () => {
+    expect(versionFromReleaseUrl('https://github.com/Mkerry12/DeepSeek-BoardMate/releases/tag/v0.2.1')).toBe('0.2.1');
+    expect(versionFromReleaseUrl('https://github.com/o/r/releases/tag/1.0.0?x=1')).toBe('1.0.0');
+    // 没有任何 Release 时跳回 releases 列表页
+    expect(versionFromReleaseUrl('https://github.com/Mkerry12/DeepSeek-BoardMate/releases')).toBe('');
+    expect(versionFromReleaseUrl('https://github.com/Mkerry12/DeepSeek-BoardMate/releases/latest')).toBe('');
+  });
+});
 
 const s = (patch: Partial<UpdateStatus>): UpdateStatus => ({
   state: 'idle',

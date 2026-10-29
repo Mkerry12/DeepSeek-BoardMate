@@ -26,6 +26,12 @@ export interface UpdateStatus {
 
 export const RELEASES_PAGE = 'https://github.com/Mkerry12/DeepSeek-BoardMate/releases/latest';
 
+/** releases/latest 跳转后的地址（…/releases/tag/v0.2.1）里的版本号；不是这个形式返回空串 */
+export function versionFromReleaseUrl(url: string): string {
+  const m = /\/releases\/tag\/v?([^/?#]+)/i.exec(url);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+
 export function installKind(isPackaged: boolean, env: Record<string, string | undefined>): InstallKind {
   if (!isPackaged) return 'dev';
   // electron-builder 的便携版启动器会设置这个环境变量
