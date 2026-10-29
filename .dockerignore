@@ -1,0 +1,13 @@
+# 构建上下文是仓库根目录，但镜像只需要后端代码：用白名单，其余（client/、.git、server/.env、令牌库、.venv……）一律不发送
+*
+!server/app.py
+!server/requirements.txt
+!server/deskmate_server/
+!shared/emotion-tags.json
+
+**/__pycache__
+**/*.py[cod]
+**/.env
+**/.env.*
+**/*.db
+**/*.db-*

@@ -1,0 +1,56 @@
+# 用 Docker 运行后端（说明见 README「用 Docker 运行后端」）：
+#   docker compose up -d --build          # 连本机（宿主机）上的 Ollama
+#   docker compose --profile ollama up -d # 没装 Ollama：连同 Ollama 一起跑在容器里（另需设置 DESKMATE_OLLAMA_URL，见下）
+# 配置读 server/.env（和直接运行时同一份）；下面 environment 里的几项是容器内必须的，会覆盖 .env 里的同名项。
+name: deskmate
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    image: deskmate-server:local
+    restart: unless-stopped
+    env_file:
+      - path: server/.env
+        required: true
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8000"
+      DB_PATH: /app/data/deskmate.db
+      # 宿主机上的 Ollama；用 ollama profile 时改成 http://ollama:11434
+      OLLAMA_URL: ${DESKMATE_OLLAMA_URL:-http://host.docker.internal:11434}
+    ports:
+      # 只绑定本机回环地址，由内网穿透（cpolar / 花生壳）转发到公网
+      - "127.0.0.1:${DESKMATE_PORT:-8000}:8000"
+    extra_hosts:
+      # Linux 上让 host.docker.internal 指向宿主机（Docker Desktop 自带）
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - deskmate-data:/app/data
+
+  # 可选：容器里的 Ollama。拉模型：docker compose exec ollama ollama pull deepseek-r1:8b
+  ollama:
+    profiles: [ollama]
+    image: ollama/ollama:${OLLAMA_IMAGE_TAG:-0.40.13}
+    restart: unless-stopped
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    # 有 NVIDIA 显卡（并装好 NVIDIA Container Toolkit / Docker Desktop 的 GPU 支持）时取消注释：
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  deskmate-data:
+  ollama-models:

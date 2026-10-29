@@ -58,6 +58,34 @@ jobs:
       - run: ruff format --check .
       - run: pytest
 
+  docker:
+    # 不是分支保护的必需检查：只验证镜像能构建、能启动、/health 正常
+    name: docker (build image)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          tags: deskmate-server:ci
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Run container and check /health
+        run: |
+          docker run -d --name deskmate-ci -p 18000:8000 deskmate-server:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18000/health; then echo; break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18000/health
+          test "$(docker inspect --format '{{.Config.User}}' deskmate-ci)" = "1001:1001"
+      - name: Container logs
+        if: always()
+        run: docker logs deskmate-ci || true
+
   gitleaks:
     name: secret scan (gitleaks)
     runs-on: ubuntu-latest
