@@ -70,4 +70,10 @@ jobs:
           gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
             --title "DeepSeek DeskMate $GITHUB_REF_NAME" \
             --notes-file release-notes.md --draft=false --latest
-          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'
+          # electron-builder 不一定把安装包的 .blockmap 传上去（增量更新要用），这里补传
+          gh release upload "$GITHUB_REF_NAME" dist/*.blockmap --repo "$GITHUB_REPOSITORY" --clobber
+          assets="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          echo "$assets"
+          for pattern in 'Setup-.*\.exe$' 'portable\.exe$' '^latest\.yml$' '\.blockmap$'; do
+            echo "$assets" | grep -Eq "$pattern" || { echo "::error::Release 缺少匹配 $pattern 的文件"; exit 1; }
+          done
